@@ -62,8 +62,9 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let (mut stream, peer_addr) = listener.accept().await?;
 
-        let shared_state_clone = Arc::clone(&shared_state);
+        // let shared_state_clone = &shared_state;
         // for every new connection
+        let mut shared_state_clone = shared_state.clone();
         tokio::spawn(async move {
             println!("Connection established: {}", peer_addr);
 
@@ -82,8 +83,13 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
                     // let mut state = shared_state.lock().unwrap();
                     // state.increment_player();
                     // curr_client_id = state.get_curr_player_count();
-                    
-                    curr_client_id = 0;
+
+                    {
+                        let mut state = shared_state_clone.lock().unwrap();
+                        state.increment_player();
+                        curr_client_id = state.get_curr_player_count();
+                    }
+
                     let mut buff = [0u8; PACKET_SIZE];
                     serialize_into(&mut buff[..], &ResponsePacket::ASSIGN_ID { id: curr_client_id }).unwrap();
                     match stream.write_all(&buff[..PACKET_SIZE]).await {
