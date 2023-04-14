@@ -1,19 +1,24 @@
+use core::fmt;
+
 use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
+use strum_macros::{EnumIter, Display};
 use CardKind::*;
 use Color::*;
 
 use rand::{thread_rng, Rng};
 use rand::seq::SliceRandom;
 
-#[derive(Debug)]
+use serde::{Serialize, Deserialize};
+use bincode::{serialize, deserialize, serialize_into};
+
+#[derive(Debug, Display, Serialize, Deserialize)]
 pub enum CardKind {Number, Skip, Reverse, Draw2, Draw4, Wild}
 
-#[derive(Debug, EnumIter, Clone, Copy)]
+#[derive(Debug, Display, EnumIter, Clone, Copy, Serialize, Deserialize)]
 pub enum Color {Red, Green, Blue, Yellow}
 
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Card {
     kind: CardKind,
     color: Option<Color>,
@@ -21,10 +26,10 @@ pub struct Card {
 }
 
 impl Card {
-    pub fn new_number(number : u8, color: Color) -> Card {
+    fn new_number(number : u8, color: Color) -> Card {
         Card {kind: CardKind::Number, color:Some(color), number:Some(number)}
     }
-    pub fn new_power(kind : CardKind, color: Option<Color>) -> Card {
+    fn new_power(kind : CardKind, color: Option<Color>) -> Card {
         match kind {
             Skip | Reverse | Draw2 => Card {kind, color, number:None},
             Draw4 | Wild => Card {kind, color:None, number:None},
@@ -33,9 +38,22 @@ impl Card {
     }
 }
 
+impl fmt::Display for Card {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.color {
+            Some(_) => {
+                match self.kind {
+                    CardKind::Number => {write!(f, "{} {}", self.color.unwrap(), self.number.unwrap())}
+                    _ => {write!(f, "{} {}", self.color.unwrap(), self.kind)}
+                }
+            }
+            None => {write!(f, "{}", self.kind)}
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Deck(Vec<Card>);
-
 impl Deck {
     pub fn new() -> Deck {
         let mut deck_vec : Vec<Card> = Vec::with_capacity(112);
@@ -67,5 +85,33 @@ impl Deck {
 
     pub fn pop_random_card(&mut self) -> Card {
         self.0.remove(thread_rng().gen_range(0..self.0.len()))
+    }
+}
+// impl fmt::Display for Deck {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         for card in self.0 {
+//             write!(f, "{}\n", card);
+//         }
+//         Ok(())
+//     }
+// }
+
+#[derive(Serialize, Deserialize)]
+pub struct Hand(Vec<Card>);
+impl Hand {
+    pub fn new(init_hand_size : usize, mut deck : Deck) -> Hand {
+        let mut cards : Vec<Card> = vec![];
+        (0..init_hand_size).for_each(|i| cards.push(deck.pop_random_card()));
+        Hand(cards)
+    }
+
+}
+
+impl fmt::Display for Hand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for i in 1..=self.0.len() {
+            write!(f, "[{}]  {}\n", i, self.0[i]);
+        }
+        Ok(())
     }
 }
