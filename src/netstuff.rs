@@ -44,13 +44,14 @@ macro_rules! nice_panic {
 enum RequestPacket {
     HELLO,
     DO_TURN {card: Card},
+    ACKNOWLEDGE_UPDATE,
 }
 
 #[derive(Serialize, Deserialize)]
 enum ResponsePacket {
     ASSIGN_ID {id : usize},
     START_GAME {hand : Hand},
-    END_TURN {curr_player_turn: usize, topmost_card: Card}, //TODO: might wanna add card_debt : Option<usize> 
+    GIVE_UPDATE {curr_player_turn: usize, topmost_card: Card}, //TODO: might wanna add card_debt : Option<usize> 
     ERROR {msg : String},
     // INITIALIZE_RESPONSE {hand: Vec<Card>},
 }
@@ -244,7 +245,7 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
                 {
                     let state = shared_state.lock().unwrap();
                     buff = [0u8; PACKET_SIZE];
-                    serialize_into(&mut buff[..], &ResponsePacket::END_TURN { curr_player_turn: state.get_curr_player_turn(),
+                    serialize_into(&mut buff[..], &ResponsePacket::GIVE_UPDATE { curr_player_turn: state.get_curr_player_turn(),
                     topmost_card: state.top_card.clone() }).unwrap();
                 }
                 stream.write_all(&buff[..PACKET_SIZE]).await.unwrap();
@@ -254,9 +255,10 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
                 match deserialize::<RequestPacket>(&buff).unwrap() {
                     RequestPacket::DO_TURN { card } => {
                         shared_state.lock().unwrap().end_turn();
-                    }
+                    },
                     // RequestPacket::QUIT => {}
-                    _ => panic!()
+                    RequestPacket::ACKNOWLEDGE_UPDATE => {thread::sleep(Duration::from_millis(300))},
+                    _ => nice_panic!(),
                 }
 
                 // if buff.is_empty() {continue;}
@@ -303,8 +305,10 @@ pub async fn run_client(port : u32) -> Result<(), Box<dyn std::error::Error>> {
         cls!();
         buff = [0u8; PACKET_SIZE];
         stream.read_exact(&mut buff).await?;
+
+        // Listen for updates from the server
         match deserialize(&buff).unwrap() {
-            ResponsePacket::END_TURN { curr_player_turn, topmost_card } => {
+            ResponsePacket::GIVE_UPDATE { curr_player_turn, topmost_card } => {
                 if curr_player_turn == client_info.id {
                     bunt::println!("{$yellow}It is your turn!{/$}");
                 }
@@ -320,8 +324,11 @@ pub async fn run_client(port : u32) -> Result<(), Box<dyn std::error::Error>> {
                     buff = [0u8; PACKET_SIZE];
                     serialize_into(&mut buff[..], &RequestPacket::DO_TURN { card: client_info.hand.pop_at(index) }).unwrap();
                     stream.write_all(&buff[..PACKET_SIZE]).await.unwrap();
-                    // stream.flush().await.unwrap();
-
+                }
+                else {
+                    buff = [0u8; PACKET_SIZE];
+                    serialize_into(&mut buff[..], &RequestPacket::ACKNOWLEDGE_UPDATE).unwrap();
+                    stream.write_all(&buff[..PACKET_SIZE]).await.unwrap();
                 }
             }
             _ => nice_panic!(),
