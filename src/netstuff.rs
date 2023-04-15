@@ -274,7 +274,9 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
 
 pub async fn run_client(port : u32) -> Result<(), Box<dyn std::error::Error>> {
     cls!();
-    let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port)).await?;
+    let local_ip = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
+    let bind_address = SocketAddr::new(local_ip, port.try_into().unwrap());
+    let mut stream = TcpStream::connect(bind_address).await?;
     let mut client_info : ClientInfo;
     let client_id : usize;
 
