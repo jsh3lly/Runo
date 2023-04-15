@@ -11,14 +11,14 @@ use rand::seq::SliceRandom;
 use serde::{Serialize, Deserialize};
 use bincode::{serialize, deserialize, serialize_into};
 
-#[derive(Debug, Display, Serialize, Deserialize)]
+#[derive(Debug, Display, Serialize, Deserialize, Clone)]
 pub enum CardKind {Number, Skip, Reverse, Draw2, Draw4, Wild}
 
 #[derive(Debug, Display, EnumIter, Clone, Copy, Serialize, Deserialize)]
 pub enum Color {Red, Green, Blue, Yellow}
 
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Card {
     kind: CardKind,
     color: Option<Color>,
@@ -86,6 +86,11 @@ impl Deck {
     pub fn pop_random_card(&mut self) -> Card {
         self.0.remove(thread_rng().gen_range(0..self.0.len()))
     }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
 }
 // impl fmt::Display for Deck {
 //     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -99,18 +104,22 @@ impl Deck {
 #[derive(Serialize, Deserialize)]
 pub struct Hand(Vec<Card>);
 impl Hand {
-    pub fn new(init_hand_size : usize, mut deck : Deck) -> Hand {
+    pub fn new(init_hand_size : usize, deck : &mut Deck) -> Hand {
         let mut cards : Vec<Card> = vec![];
         (0..init_hand_size).for_each(|i| cards.push(deck.pop_random_card()));
         Hand(cards)
     }
 
+    pub fn pop_at(&mut self, index : usize) -> Card {
+        self.0.remove(index + 1)
+    }
 }
 
 impl fmt::Display for Hand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for i in 1..=self.0.len() {
-            write!(f, "[{}]  {}\n", i, self.0[i]);
+        writeln!(f, "Your hand is:").unwrap();
+        for i in 0..self.0.len() {
+            write!(f, "[{}]  {}\n", i+1, self.0[i]).unwrap();
         }
         Ok(())
     }

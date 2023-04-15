@@ -20,6 +20,10 @@ struct Args {
     /// Specify port number
     #[arg(short, long, default_value_t=8080)]
     port: u32,
+
+    // /// Specify name (client mode only)
+    // #[arg(short, long, requires_if("client", "name not provided"))]
+    // name: Option<String>,
 }
 
 #[tokio::main]
@@ -30,7 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>>{
         netstuff::run_server(args.port).await?;
     }
     else if args.client {
-        netstuff::run_client(args.port).await?;
+        netstuff::run_client(args.port, /* args.name */).await?;
     }
 
     Ok(())

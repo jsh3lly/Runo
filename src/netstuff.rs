@@ -7,10 +7,11 @@
  * simply use Tokio channels for inter-thread communications
  */
 
+use std::io::BufRead;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::AtomicU8;
 use std::sync::atomic::Ordering::SeqCst;
-use std::thread;
+use std::{thread, io};
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, AsyncReadExt};
@@ -21,21 +22,35 @@ use RequestPacket::*;
 use tokio::sync::broadcast;
 
 use crate::card::{Card, Deck, Hand};
-use bunt;
+use bunt::{self, print};
 
 const MAX_PLAYERS_LIMIT : u8 = 10;
 const PACKET_SIZE : usize = 1024;
 
+macro_rules! cls {
+    () => {
+        print!("\x1B[2J\x1b[1;1H");
+    }
+}
+
+macro_rules! nice_panic {
+    () => {
+        panic!("Wrong packet received. This was not supposed to happen")
+    };
+}
+
+
 #[derive(Serialize, Deserialize)]
 enum RequestPacket {
     HELLO,
-    // INITIALIZE,
+    DO_TURN {card: Card},
 }
 
 #[derive(Serialize, Deserialize)]
 enum ResponsePacket {
-    ASSIGN_ID {id : u8},
+    ASSIGN_ID {id : usize},
     START_GAME {hand : Hand},
+    END_TURN {curr_player_turn: usize, topmost_card: Card}, //TODO: might wanna add card_debt : Option<usize> 
     ERROR {msg : String},
     // INITIALIZE_RESPONSE {hand: Vec<Card>},
 }
@@ -43,8 +58,16 @@ enum ResponsePacket {
 // For now, deck is of size 1 (1 deck to play with)
 struct GameState {
     deck: Deck,
-    curr_player_count : u8,
-    phase: Phase
+    players: Vec<usize>,
+    phase: Phase,
+    top_card: Card,
+    curr_player_turn_index : usize,
+}
+
+struct ClientInfo {
+    id : usize,
+    hand: Hand,
+    // name : String,
 }
 
 #[derive(PartialEq, Clone)]
@@ -61,17 +84,39 @@ enum ServerBroadcastPacket {
 
 impl GameState {
     fn new() -> GameState {
-        GameState { deck: (Deck::new()), curr_player_count: 0, phase:Phase::WAITING }
+        let mut deck = Deck::new();
+        let top_card = deck.pop_random_card();
+        GameState { deck,
+            players: vec![],
+            phase: Phase::WAITING,
+            top_card,
+            curr_player_turn_index:0 }
     }
-    fn increment_player(&mut self) {
-        self.curr_player_count += 1;
+    fn add_new_player(&mut self) {
+        match self.players.last() {
+            Some(x) => self.players.push(x+1),
+            None => self.players.push(1),
+        }
     }
-    fn get_curr_player_count(&self) -> u8 {
-        self.curr_player_count
+    fn players_len(&self) -> usize {
+        self.players.len()
+    }
+    fn end_turn(&mut self) {
+        // IMP: this might be a bug
+        if self.curr_player_turn_index < self.players_len() - 1 {
+            self.curr_player_turn_index += 1;
+        }
+        else {
+            self.curr_player_turn_index = 0; // wrap around
+        }
+    }
+    fn get_curr_player_turn(&self) -> usize {
+        self.players[self.curr_player_turn_index]
     }
 }
 
 pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
+    cls!();
     let listener = TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
     // let curr_player_count = Arc::new(AtomicU8::new(0));
     let shared_state = Arc::new(Mutex::new(GameState::new()));
@@ -93,13 +138,21 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
                 match line.trim() {
                     "start" => {
                         {
+                            let curr_player_count = shared_state.lock().unwrap().players_len();
+                            if  curr_player_count < 2 {
+                                bunt::println!("{$red}Game can only be started with 2 or more players,
+                                               only {} player(s) connected for now{/$}", curr_player_count);
+                                continue;
+                            }
                             let res = tx.send(ServerBroadcastPacket::START_GAME);
                             if res.is_err() {println!("broadcast err")}
+                            cls!();
+                            bunt::println!("{$magenta}Game Started! {/$}");
                         }
                     },
                     _ => unreachable!()
                 }
-                bunt::println!("{$yellow}{}{/$}", line);
+                // bunt::println!("{$yellow}{}{/$}", line);
             }
         }
     });
@@ -115,7 +168,8 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
         let mut rx = tx.subscribe();
         tokio::spawn(async move {
             // waiting for initial HELLO packet
-            let curr_client_id : u8;
+            // let client_info : ClientInfo;
+            let client_id;
             let mut buff = [0u8; PACKET_SIZE];
             match stream.read_exact(&mut buff).await {
                 Err(_) => bunt::println!("{$red}Error receiving packet from new client!{/$}"),
@@ -131,31 +185,34 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
 
                             {
                                 let mut state = shared_state.lock().unwrap();
-                                state.increment_player();
-                                curr_client_id = state.get_curr_player_count();
+                                state.add_new_player();
+                                client_id = state.players_len();
                             }
 
-                            serialize_into(&mut buff[..], &ResponsePacket::ASSIGN_ID { id: curr_client_id }).unwrap();
+                            serialize_into(&mut buff[..], &ResponsePacket::ASSIGN_ID { id: client_id}).unwrap();
                             match stream.write_all(&buff[..PACKET_SIZE]).await {
-                                Ok(_) => bunt::println!("{$green}ID assigned to new client is {}{/$}", curr_client_id),
-                                Err(_) => bunt::println!("{$red}Error sending packet to {}{/$}", curr_client_id),
+                                Ok(_) => bunt::println!("{$green}ID assigned to new client is {}{/$}", client_id),
+                                Err(_) => bunt::println!("{$red}Error sending packet to {}{/$}", client_id),
                             };
                         },
                         Phase::INGAME => {
-                            serialize_into(&mut buff[..], &ResponsePacket::ERROR{ msg: "Game has already started!".to_string()}).unwrap();
+                            serialize_into(&mut buff[..],
+                                           &ResponsePacket::ERROR{ msg: "Cannot connect: Game has already started!".to_string()}).unwrap();
                             stream.write_all(&buff[..PACKET_SIZE]).await.unwrap();
                             bunt::println!("{$red}Responded with error, since game has already started!{/$}");
                             return;
                         },
                         Phase::GAMEOVER => {
-                            serialize_into(&mut buff[..], &ResponsePacket::ERROR{ msg: "Game is over!".to_string()}).unwrap();
+                            serialize_into(&mut buff[..],
+                                           &ResponsePacket::ERROR{ msg: "Cannot connect: Game is over!".to_string()}).unwrap();
                             stream.write_all(&buff[..PACKET_SIZE]).await.unwrap();
-                            bunt::println!("{$red}Responded with error, since game has already started!{/$}");
+                            bunt::println!("{$red}Rejected joinging, since game has already started!{/$}");
                             return;
                         },
                     }
 
                 }
+                _ => nice_panic!()
             }
 
             bunt::println!("{$yellow}Connection established: {} {/$}", peer_addr);
@@ -171,13 +228,39 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             {shared_state.lock().unwrap().phase = Phase::INGAME};
-            // bunt::println!("{$magenta}Game Started! {/$}");
 
 
-            // Serving the client, loop
-            // loop {
-            //     if buff.is_empty() {continue;}
-            // }
+            let hand : Hand = Hand::new(7, &mut shared_state.lock().unwrap().deck);
+            //TODO: Handle case where deck runs out of cards
+
+            // println!("{}", shared_state.lock().unwrap().deck.len());
+            buff = [0u8; PACKET_SIZE];
+            serialize_into(&mut buff[..], &ResponsePacket::START_GAME { hand }).unwrap();
+            stream.write_all(&buff[..PACKET_SIZE]).await.unwrap();
+
+
+            // Serving the client, game loop
+            loop {
+                {
+                    let state = shared_state.lock().unwrap();
+                    buff = [0u8; PACKET_SIZE];
+                    serialize_into(&mut buff[..], &ResponsePacket::END_TURN { curr_player_turn: state.get_curr_player_turn(),
+                    topmost_card: state.top_card.clone() }).unwrap();
+                }
+                stream.write_all(&buff[..PACKET_SIZE]).await.unwrap();
+
+                buff = [0u8; PACKET_SIZE];
+                stream.read_exact(&mut buff).await;
+                match deserialize::<RequestPacket>(&buff).unwrap() {
+                    RequestPacket::DO_TURN { card } => {
+                        shared_state.lock().unwrap().end_turn();
+                    }
+                    // RequestPacket::QUIT => {}
+                    _ => panic!()
+                }
+
+                // if buff.is_empty() {continue;}
+            }
 
             // println!("Connection closed: {}", peer_addr);
         });
@@ -185,8 +268,10 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub async fn run_client(port : u32) -> Result<(), Box<dyn std::error::Error>> {
+    cls!();
     let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port)).await?;
-    // let client_id : u8;
+    let mut client_info : ClientInfo;
+    let client_id : usize;
 
     // Sending HELLO packet to get a client ID
     // let mut buf : [isize; 1024] = serialize(&ResponsePacket::HELLO).unwrap().into_boxed_slice();
@@ -194,16 +279,53 @@ pub async fn run_client(port : u32) -> Result<(), Box<dyn std::error::Error>> {
     serialize_into(&mut buff[..], &RequestPacket::HELLO).unwrap();
     stream.write_all(&buff[..PACKET_SIZE]).await?;
     stream.flush().await?;
-    println!("hello");
     buff = [0u8; PACKET_SIZE];
     stream.read_exact(&mut buff).await?;
     match deserialize(&buff).unwrap() {
         ResponsePacket::ASSIGN_ID { id } => {
-            println!("Got ID: {}, wait until game admin starts the game", id);
-            // client_id = id;
+            bunt::println!("{$green}You are Player #{}, wait until game admin starts the game{/$}", id);
+            client_id = id;
         },
         ResponsePacket::ERROR { msg } => {bunt::println!("{$red}{}{/$}", msg); return Ok(());},
-        _ => panic!("Wrong packet received. This was not supposed to happen"),
+        _ => nice_panic!(),
+    }
+    buff = [0u8; PACKET_SIZE];
+    stream.read_exact(&mut buff).await?;
+    match deserialize(&buff).unwrap() {
+        ResponsePacket::START_GAME { hand } => {client_info = ClientInfo {id:client_id, hand}},
+        _ => nice_panic!()
+    }
+    cls!();
+    bunt::println!("{$green}The game has started!{/$}");
+
+    // Game loop
+    loop {
+        cls!();
+        buff = [0u8; PACKET_SIZE];
+        stream.read_exact(&mut buff).await?;
+        match deserialize(&buff).unwrap() {
+            ResponsePacket::END_TURN { curr_player_turn, topmost_card } => {
+                if curr_player_turn == client_info.id {
+                    bunt::println!("{$yellow}It is your turn!{/$}");
+                }
+                println!();
+                bunt::println!("{$yellow}You are Player #{}{/$}", client_id);
+                bunt::println!("{$yellow}Topmost card: {}{/$}", topmost_card);
+                bunt::println!("{$yellow}Current turn's player: {}{/$}", curr_player_turn);
+                println!("{}", client_info.hand);
+                if curr_player_turn == client_info.id {
+                    println!("Write the card number you wanna play: ");
+                    let input = io::stdin().lock().lines().next().unwrap().unwrap();
+                    let index = input.parse::<usize>().unwrap();
+                    buff = [0u8; PACKET_SIZE];
+                    serialize_into(&mut buff[..], &RequestPacket::DO_TURN { card: client_info.hand.pop_at(index) }).unwrap();
+                    stream.write_all(&buff[..PACKET_SIZE]).await.unwrap();
+                    // stream.flush().await.unwrap();
+
+                }
+            }
+            _ => nice_panic!(),
+        }
     }
 
     // for i in 1..=3 {
@@ -217,5 +339,5 @@ pub async fn run_client(port : u32) -> Result<(), Box<dyn std::error::Error>> {
     //     println!("Received: {}", buffer.trim_end());
     // }
 
-    Ok(())
+    // Ok(())
 }
