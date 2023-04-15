@@ -8,6 +8,7 @@
  */
 
 use std::io::BufRead;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::AtomicU8;
 use std::sync::atomic::Ordering::SeqCst;
@@ -118,7 +119,9 @@ impl GameState {
 
 pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
     cls!();
-    let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
+    let local_ip = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
+    let bind_address = SocketAddr::new(local_ip, port.try_into().unwrap());
+    let listener = TcpListener::bind(bind_address).await?;
     // let curr_player_count = Arc::new(AtomicU8::new(0));
     let shared_state = Arc::new(Mutex::new(GameState::new()));
     let (tx, _) = broadcast::channel::<ServerBroadcastPacket>(32);
