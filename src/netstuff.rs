@@ -119,9 +119,9 @@ impl GameState {
 
 pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
     cls!();
-    let local_ip = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
-    let bind_address = SocketAddr::new(local_ip, port.try_into().unwrap());
-    let listener = TcpListener::bind(bind_address).await?;
+    // let local_ip = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
+    // let bind_address = SocketAddr::new(local_ip, port.try_into().unwrap());
+    let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
     // let curr_player_count = Arc::new(AtomicU8::new(0));
     let shared_state = Arc::new(Mutex::new(GameState::new()));
     let (tx, _) = broadcast::channel::<ServerBroadcastPacket>(32);
@@ -274,9 +274,9 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
 
 pub async fn run_client(port : u32) -> Result<(), Box<dyn std::error::Error>> {
     cls!();
-    let local_ip = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
-    let bind_address = SocketAddr::new(local_ip, port.try_into().unwrap());
-    let mut stream = TcpStream::connect(bind_address).await?;
+    // let local_ip = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
+    // let bind_address = SocketAddr::new(local_ip, port.try_into().unwrap());
+    let mut stream = TcpStream::connect(format!("0.0.0.0:{}", port)).await?;
     let mut client_info : ClientInfo;
     let client_id : usize;
 
