@@ -118,7 +118,7 @@ impl GameState {
 
 pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
     cls!();
-    let listener = TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
+    let listener = TcpListener::bind(format!("0.0.0.1:{}", port)).await?;
     // let curr_player_count = Arc::new(AtomicU8::new(0));
     let shared_state = Arc::new(Mutex::new(GameState::new()));
     let (tx, _) = broadcast::channel::<ServerBroadcastPacket>(32);
