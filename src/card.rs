@@ -111,7 +111,7 @@ impl Hand {
     }
 
     pub fn pop_at(&mut self, index : usize) -> Card {
-        self.0.remove(index + 1)
+        self.0.remove(index - 1)
     }
 }
 
