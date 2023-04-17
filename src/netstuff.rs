@@ -151,7 +151,8 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
                                 continue;
                             }
                             let res = tx.send(ServerBroadcastPacket::START_GAME);
-                            if res.is_err() {println!("broadcast err")}
+                            if res.is_err() {println!("broadcast err")} // TODO: possibly take care
+                                                                        // of this
                             cls!();
                             bunt::println!("{$magenta}Game Started! {/$}");
                         }
@@ -166,16 +167,14 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         let (mut stream, peer_addr) = listener.accept().await?;
-
-        // let shared_state_clone = &shared_state;
-        // for every new connection
         let shared_state = shared_state.clone();
-
-        // let tx = tx.clone();
         let mut rx = tx.subscribe();
+        // for every new connection
         tokio::spawn(async move {
+
+
+            // === WAITING PHASE: DIFFERENT PLAYERS JOINING ===
             // waiting for initial HELLO packet
-            // let client_info : ClientInfo;
             let client_id;
             let mut buff = [0u8; PACKET_SIZE];
             match stream.read_exact(&mut buff).await {
@@ -224,7 +223,7 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
 
             bunt::println!("{$yellow}Connection established: {} {/$}", peer_addr);
 
-            // Blocks until game is started
+            // Client's initial setup is done, now waiting for the server to start the game
             loop {
                 match rx.try_recv() {
                     Ok(_) => {break;},
@@ -237,17 +236,16 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
             {shared_state.lock().unwrap().phase = Phase::INGAME};
 
 
+            // === INGAME PHASE: GAME IS IN PROGRESS ===
             let hand : Hand = Hand::new(7, &mut shared_state.lock().unwrap().deck);
             //TODO: Handle case where deck runs out of cards
-
-            // println!("{}", shared_state.lock().unwrap().deck.len());
             buff = [0u8; PACKET_SIZE];
             serialize_into(&mut buff[..], &ResponsePacket::START_GAME { hand }).unwrap();
             stream.write_all(&buff[..PACKET_SIZE]).await.unwrap();
 
-
-            // Serving the client, game loop
+            // Game loop, ends when someone wins or when current client chooses to quit
             loop {
+                // Continually give update to player TODO: do this in a better way
                 {
                     let state = shared_state.lock().unwrap();
                     buff = [0u8; PACKET_SIZE];
