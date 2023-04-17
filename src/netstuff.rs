@@ -23,7 +23,7 @@ use RequestPacket::*;
 use tokio::sync::broadcast;
 
 use crate::card::{Card, Deck, Hand};
-use bunt::{self, print};
+use bunt::{self, print, println};
 
 const MAX_PLAYERS_LIMIT : u8 = 10;
 const PACKET_SIZE : usize = 1024;
@@ -134,14 +134,16 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn({
         let shared_state = shared_state.clone();
         let tx = tx.clone();
+        let server_commands = vec!["start"]; //TODO: this isn't the best way to do this
         async move {
             let mut line;
             loop {
                 line = String::new();
                 std::io::stdin().read_line(&mut line).unwrap();
+
                 match line.trim() {
                     "start" => {
-                        {
+                        if shared_state.lock().unwrap().phase == Phase::WAITING {
                             let curr_player_count = shared_state.lock().unwrap().players_len();
                             if  curr_player_count < 2 {
                                 bunt::println!("{$red}Game can only be started with 2 or more players,
@@ -153,8 +155,9 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
                             cls!();
                             bunt::println!("{$magenta}Game Started! {/$}");
                         }
+                        else {bunt::println!("{$red}Game has already started!{/$}")}
                     },
-                    _ => unreachable!()
+                    _ => {bunt::println!("{$red}Invalid command: Valid commands are: {:?}{/$}", server_commands)}
                 }
                 // bunt::println!("{$yellow}{}{/$}", line);
             }
@@ -258,6 +261,7 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
                 match deserialize::<RequestPacket>(&buff).unwrap() {
                     RequestPacket::DO_TURN { card } => {
                         shared_state.lock().unwrap().end_turn();
+                        println!("chosen card: {}", card);
                     },
                     // RequestPacket::QUIT => {}
                     RequestPacket::ACKNOWLEDGE_UPDATE => {thread::sleep(Duration::from_millis(300))},
@@ -339,17 +343,4 @@ pub async fn run_client(port : u32) -> Result<(), Box<dyn std::error::Error>> {
             _ => nice_panic!(),
         }
     }
-
-    // for i in 1..=3 {
-    //     let message = format!("Hello, packet {}!\n", i);
-    //     stream.write_all(message.as_bytes()).await?;
-    //
-    //     let mut reader = BufReader::new(&mut stream);
-    //     let mut buffer = String::new();
-    //     reader.read_line(&mut buffer).await?;
-    //
-    //     println!("Received: {}", buffer.trim_end());
-    // }
-
-    // Ok(())
 }
