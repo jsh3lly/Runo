@@ -3,8 +3,6 @@ use clap::Parser;
 mod card;
 mod netstuff;
 
-use card::*;
-
 /// TODO: Uno game
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]

@@ -14,7 +14,7 @@ use bincode::{serialize, deserialize, serialize_into};
 #[derive(Debug, Display, Serialize, Deserialize, Clone)]
 pub enum CardKind {Number, Skip, Reverse, Draw2, Draw4, Wild}
 
-#[derive(Debug, Display, EnumIter, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Display, EnumIter, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Color {Red, Green, Blue, Yellow}
 
 
@@ -92,14 +92,6 @@ impl Deck {
     }
 
 }
-// impl fmt::Display for Deck {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         for card in self.0 {
-//             write!(f, "{}\n", card);
-//         }
-//         Ok(())
-//     }
-// }
 
 #[derive(Serialize, Deserialize)]
 pub struct Hand(Vec<Card>);
@@ -110,8 +102,13 @@ impl Hand {
         Hand(cards)
     }
 
+    //TODO: validate bounds
     pub fn pop_at(&mut self, index : usize) -> Card {
         self.0.remove(index - 1)
+    }
+
+    pub fn get_at(& self, index: usize) -> Card {
+        self.0[index - 1].clone()
     }
 }
 
