@@ -1,54 +1,86 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum, command, arg, ArgGroup, value_parser};
 
-mod card;
-mod netstuff;
+// mod card;
+mod netcode;
+use crate::netcode::client_server;
 
-/// TODO: Uno game
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    /// Run the program in server mode
-    #[arg(short, long, group="mode"/* , conflicts_with_all=&["client"], required_unless_present="client" */)]
-    server: bool,
 
-    /// Run the program in client mode
-    #[arg(short, long, group="mode"/* , conflicts_with_all=&["server"], required_unless_present="server" */)]
-    client: bool,
 
-    /// Specify port number
-    #[arg(short, long, default_value_t=8080)]
-    port: u32,
+// /// TODO: Uno game
+// #[derive(Parser, Debug)]
+// #[command(author, version, about, long_about = None)]
+// struct Args {
+//     /// Specify the mode
+//     #[arg(value_enum, group="mode")]
+//     mode: Mode,
+//
+//     /// Specify port number
+//     #[arg(short, long, default_value_t=8080)]
+//     port: u32,
+//
+//     /// Specify name (client mode only)
+//     #[arg(short, long, group="mode", requires_if("mode", "client"))]
+//     // #[arg(short, long, requires_if("client", "name not provided"))]
+//     name: Option<String>,
+// }
 
-    // /// Specify name (client mode only)
-    // #[arg(short, long, requires_if("client", "name not provided"))]
-    // name: Option<String>,
-}
-
-// TODO: Find better way to do the mutual exclusive mandatory requirement for client and server
-impl Args {
-    fn validate(&self) -> Result<(), String> {
-        if !self.server && !self.client {
-            return Err("At least one of `--server` or `--client` must be specified.".to_string());
-        }
-
-        Ok(())
-    }
-}
+// #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
+// enum Mode {
+//     Client,
+//     Server,
+// }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>>{
-    let args = Args::parse();
-    args.validate().map_err(|e| {
-        eprintln!("{}", e);
-        std::process::exit(1);
-    }).unwrap();
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // let args = Args::parse();
+    let matches = command!()
+        .group(ArgGroup::new("mode").required(true).multiple(false))
+        .arg(
+            arg!(-c --client)
+            .help("Run as client")
+            .group("mode")
+            )
+        .arg(
+            arg!(-s --server)
+            .help("Run as server")
+            .group("mode")
+            )
+            .arg(
+                arg!(-o --open)
+                .help("Start an Open server")
+                .conflicts_with("client")
+                )
+        .arg(
+            arg!(-p --port <VALUE>)
+            .help("Specify port number")
+            .value_parser(value_parser!(u32).range(1..))
+            .default_value("8080"),
+            )
+        // .arg(
+        //     arg!(-v --verbose)
+        //     .help("Enable verbose mode")
+        //     )
+        // .arg(
+        //     arg!("name")
+        //     .short('n')
+        //     .long("name")
+        //     // .about("Specify name (client mode only)")
+        //     .requires_if("mode", "client"),
+        //     )
+        .get_matches();
 
-    if args.server {
-        netstuff::run_server(args.port).await?;
+    let port = *matches.get_one("port").unwrap();
+    let is_open = *matches.get_one("open").unwrap();
+    if *matches.get_one("server").unwrap() {
+        client_server::run_server(port, is_open).await?;
     }
-    else if args.client {
-        netstuff::run_client(args.port, /* args.name */).await?;
+
+    if *matches.get_one("client").unwrap() {
+        client_server::run_client(port, /* args.name */).await?;
     }
+    // else if args.mode == Mode::Client {
+    //     client_server::run_client(args.port, /* args.name */).await?;
+    // }
 
     Ok(())
 }
