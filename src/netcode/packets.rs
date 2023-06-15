@@ -12,11 +12,14 @@ pub trait Packet{}
 pub enum ServerPacket {
     AuthRequest {required: bool},
     AuthAcknowledged,
+    AskPreferredName,
+    SendGivenName {name : String, optional_msg: Option<String>},
 }
 
 #[derive(Serialize, Deserialize)]
 pub enum ClientPacket {
     AuthResponse {join_code : usize},
+    SendPreferredName {optional_client_name: Option<String>},
 }
 
 impl Packet for ClientPacket{}
