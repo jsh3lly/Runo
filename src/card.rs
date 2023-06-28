@@ -93,13 +93,17 @@ impl Deck {
 
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug/* TODO: REMOVE THIS */)]
 pub struct Hand(Vec<Card>);
 impl Hand {
     pub fn new(init_hand_size : usize, deck : &mut Deck) -> Hand {
         let mut cards : Vec<Card> = vec![];
         (0..init_hand_size).for_each(|i| cards.push(deck.pop_random_card()));
         Hand(cards)
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
     }
 
     //TODO: validate bounds
@@ -121,3 +125,10 @@ impl fmt::Display for Hand {
         Ok(())
     }
 }
+
+// impl fmt::Debug for Hand {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         writeln!(f, "Hidden for obvious reasons ;)");
+//         Ok(())
+//     }
+// }
