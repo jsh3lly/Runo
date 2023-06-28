@@ -3,7 +3,6 @@ use clap::{Parser, ValueEnum, command, arg, ArgGroup, value_parser};
 // Attaching modules to module tree
 mod netcode;
 mod card;
-mod wrapping;
 
 use crate::netcode::client_server;
 
