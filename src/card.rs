@@ -14,7 +14,7 @@ use bincode::{serialize, deserialize, serialize_into};
 #[derive(Debug, Display, Serialize, Deserialize, Clone)]
 pub enum CardKind {Number, Skip, Reverse, Draw2, Draw4, Wild}
 
-#[derive(Debug, Display, EnumIter, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Display, EnumIter, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Color {Red, Green, Blue, Yellow}
 
 
@@ -92,16 +92,8 @@ impl Deck {
     }
 
 }
-// impl fmt::Display for Deck {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         for card in self.0 {
-//             write!(f, "{}\n", card);
-//         }
-//         Ok(())
-//     }
-// }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug/* TODO: REMOVE THIS */)]
 pub struct Hand(Vec<Card>);
 impl Hand {
     pub fn new(init_hand_size : usize, deck : &mut Deck) -> Hand {
@@ -110,8 +102,17 @@ impl Hand {
         Hand(cards)
     }
 
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    //TODO: validate bounds
     pub fn pop_at(&mut self, index : usize) -> Card {
         self.0.remove(index - 1)
+    }
+
+    pub fn get_at(& self, index: usize) -> Card {
+        self.0[index - 1].clone()
     }
 }
 
@@ -124,3 +125,10 @@ impl fmt::Display for Hand {
         Ok(())
     }
 }
+
+// impl fmt::Debug for Hand {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         writeln!(f, "Hidden for obvious reasons ;)");
+//         Ok(())
+//     }
+// }
