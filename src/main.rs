@@ -6,32 +6,6 @@ mod card;
 
 use crate::netcode::client_server;
 
-
-
-// /// TODO: Uno game
-// #[derive(Parser, Debug)]
-// #[command(author, version, about, long_about = None)]
-// struct Args {
-//     /// Specify the mode
-//     #[arg(value_enum, group="mode")]
-//     mode: Mode,
-//
-//     /// Specify port number
-//     #[arg(short, long, default_value_t=8080)]
-//     port: u32,
-//
-//     /// Specify name (client mode only)
-//     #[arg(short, long, group="mode", requires_if("mode", "client"))]
-//     // #[arg(short, long, requires_if("client", "name not provided"))]
-//     name: Option<String>,
-// }
-
-// #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
-// enum Mode {
-//     Client,
-//     Server,
-// }
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // let args = Args::parse();
@@ -86,10 +60,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if *matches.get_one("client").unwrap() {
         client_server::run_client(port, matches.get_one("name"),).await?;
     }
-    // else if args.mode == Mode::Client {
-    //     client_server::run_client(args.port, /* args.name */).await?;
-    // }
-
     Ok(())
 }
 
