@@ -11,7 +11,7 @@ use rand::seq::SliceRandom;
 use serde::{Serialize, Deserialize};
 use bincode::{serialize, deserialize, serialize_into};
 
-#[derive(Debug, Display, Serialize, Deserialize, Clone)]
+#[derive(Debug, Display, Serialize, Deserialize, Clone, PartialEq)]
 pub enum CardKind {Number, Skip, Reverse, Draw2, Draw4, Wild}
 
 #[derive(Debug, Display, EnumIter, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -20,9 +20,9 @@ pub enum Color {Red, Green, Blue, Yellow}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Card {
-    kind: CardKind,
-    color: Option<Color>,
-    number: Option<u8>,
+    pub kind: CardKind,
+    pub color: Option<Color>,
+    pub number: Option<u8>,
 }
 
 impl Card {
@@ -34,6 +34,12 @@ impl Card {
             Skip | Reverse | Draw2 => Card {kind, color, number:None},
             Draw4 | Wild => Card {kind, color:None, number:None},
             Number => panic!("Invalid kind for power card")
+        }
+    }
+    pub fn set_draw4_or_wild_color(&mut self, color: Color) {
+        match self.kind {
+            Draw4 | Wild => {self.color = Some(color); println!("HELLO");}
+            _ => panic!("This should not happen!!"),
         }
     }
 }
@@ -84,7 +90,12 @@ impl Deck {
     }
 
     pub fn pop_random_card(&mut self) -> Card {
-        self.0.remove(thread_rng().gen_range(0..self.0.len()))
+        // self.0.remove(thread_rng().gen_range(0..self.0.len()))
+        Card::new_number(1, Green)
+    }
+
+    pub fn push_card(&mut self, card: Card) {
+        self.0.push(card);
     }
 
     pub fn len(&self) -> usize {
@@ -98,7 +109,14 @@ pub struct Hand(Vec<Card>);
 impl Hand {
     pub fn new(init_hand_size : usize, deck : &mut Deck) -> Hand {
         let mut cards : Vec<Card> = vec![];
-        (0..init_hand_size).for_each(|i| cards.push(deck.pop_random_card()));
+        // cards.push(Card::new_power(CardKind::Draw2, Some(Green)));
+        // cards.push(Card::new_power(CardKind::Reverse, Some(Green)));
+        // cards.push(Card::new_power(CardKind::Skip, Some(Green)));
+        // cards.push(Card::new_power(CardKind::Wild, None));
+        // cards.push(Card::new_power(CardKind::Draw4, None));
+        cards.push(Card::new_number(1, Green));
+        cards.push(Card::new_power(Reverse, Some(Green)));
+        // (0..init_hand_size).for_each(|i| cards.push(deck.pop_random_card()));
         Hand(cards)
     }
 
@@ -111,8 +129,12 @@ impl Hand {
         self.0.remove(index - 1)
     }
 
-    pub fn get_at(& self, index: usize) -> Card {
+    pub fn get_at(&self, index: usize) -> Card {
         self.0[index - 1].clone()
+    }
+
+    pub fn push(&mut self, card: Card) {
+        self.0.push(card);
     }
 }
 

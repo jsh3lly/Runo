@@ -4,7 +4,7 @@ use serde::{Serialize, Deserialize};
 use bincode::{serialize, deserialize, serialize_into};
 use bunt::*;
 
-use crate::card::Hand;
+use crate::card::{Hand, Color};
 
 const PACKET_SIZE : usize = 1024;
 
@@ -18,7 +18,9 @@ pub enum ServerPacket {
     AskPreferredName,
     SendGivenName {name : String, optional_msg: Option<String>},
     SendMsg {msg: Option<String>},
-    SendMsgUpdate {msg: String, hand: Hand, is_my_chance: bool}
+    SendMsgUpdate {msg_first_half: String, hand: Hand, msg_second_half : String, is_my_turn: bool},
+    SendMoveAcknowledgement {msg: Option<String>},
+    YouWon,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -26,7 +28,8 @@ pub enum ServerPacket {
 pub enum ClientPacket {
     AuthResponse {join_code : usize},
     SendPreferredName {optional_client_name: Option<String>},
-    SendMove {card_idx: usize},
+    SendMoveCard {card_idx: usize, color_choice: Option<Color>},
+    SendMovePick,
 }
 
 impl TCPPacket for ClientPacket{}

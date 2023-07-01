@@ -1,10 +1,11 @@
-use std::{net::{TcpListener, TcpStream}, io, sync::{Arc, Mutex}, collections::VecDeque};
+use std::{net::{TcpListener, TcpStream}, io, sync::{Arc, Mutex}, collections::VecDeque, };
 use rand::Rng;
 use tokio::sync::broadcast;
 
-use crate::{netcode::packets::{send_packet, ServerPacket, read_packet, ClientPacket, GameThreadBroadcastPacket}, card::{Deck, Hand}};
+use crate::{netcode::packets::{send_packet, ServerPacket, read_packet, ClientPacket, GameThreadBroadcastPacket}, card::{Deck, Hand, Color}, game::verify_move};
 use crate::netcode::misc::Names;
 use crate::card;
+use crate::game;
 
 use card::Card;
 
@@ -41,12 +42,22 @@ enum Direction {
     Negative,
 }
 
+impl Direction {
+    fn flip(&mut self) {
+        *self = match *self {
+            Direction::Positive => Direction::Negative,
+            Direction::Negative => Direction::Positive,
+        }
+    }
+}
+
 #[derive(Debug)]
 struct ClientInfo {
     id: usize,
     stream: TcpStream,
     name: String,
     hand: Hand,
+    is_active: bool,
 }
 
 #[derive(Debug)]
@@ -84,11 +95,12 @@ impl GlobalGameData {
             Direction::Positive => rhs = 1 + self.skip_debt as isize,
             Direction::Negative => rhs = - (1 + self.skip_debt as isize),
         }
-        let next_player = (lhs + rhs) % self.curr_total_clients_num as isize;
+        let next_player = (lhs + rhs).rem_euclid(self.curr_total_clients_num as isize);
         // if next_player < 0 || next_player >= self.curr_total_clients_num as isize {
         //     next_player = next_player % self.curr_total_clients_num as isize;
         // }
         self.curr_client_id_turn = next_player as usize;
+        self.skip_debt = 0;
     }
 }
 
@@ -102,16 +114,34 @@ pub async fn run_server(port : u32, server_is_open : bool) -> Result<(), Box<dyn
     }
 
     let mut deck = Deck::new();
-    let stack_card = deck.pop_random_card();
+    let mut stack_card;
+    loop {
+        stack_card = deck.pop_random_card();
+        match stack_card.kind {
+            card::CardKind::Wild | card::CardKind::Draw4 => deck.push_card(stack_card),
+            _ => break,
+        }
+    }
+    
+    let mut skip_debt = 0;
+    let mut card_debt = 0;
+    let mut direction = Direction::Positive;
+    match stack_card.kind {
+        card::CardKind::Number => {},
+        card::CardKind::Skip => skip_debt = 1,
+        card::CardKind::Reverse => direction.flip(),
+        card::CardKind::Draw2 => card_debt += 2,
+        card::CardKind::Draw4 | card::CardKind::Wild => unreachable!(),
+    }
     let shared_global_game_data = Arc::new(Mutex::new(GlobalGameData {
         names: Names::new(),
         game_phase: GamePhase::Waiting,
         curr_total_clients_num: 0, /// Total number of connected clients
         curr_client_id_turn:0, /// Number between 0 and curr_clients_num (non inclusive).
         master_deck: deck, /// The main deck from where cards are taken to form hands
-        direction: Direction::Positive, // Two directions in which the game goes. Changes when reverse card is used
-        card_debt: 0,
-        skip_debt: 0,
+        direction, // Two directions in which the game goes. Changes when reverse card is used
+        card_debt,
+        skip_debt,
         stack: VecDeque::from(vec![stack_card]),
         clients_info: vec![],
     }));
@@ -126,22 +156,82 @@ pub async fn run_server(port : u32, server_is_open : bool) -> Result<(), Box<dyn
         loop {
             // provide updates to players
             for idx in 0..shrared_state_held.clients_info.len() {
-                let mut msg = "Players: \n".to_string() + &shrared_state_held.get_players_string() + "\n";
-                msg += &format!("Topmost card: {}", shrared_state_held.stack.get(0).unwrap()).to_string();
-                msg += "\n";
+                if !shrared_state_held.clients_info[idx].is_active {continue;}
+                let mut msg_first_half = "\nPlayers: \n".to_string() + &shrared_state_held.get_players_string() + "\n";
+                msg_first_half += &format!("Topmost card: {}\n", shrared_state_held.stack.get(0).unwrap()).to_string();
+                let msg_second_half;
+                if shrared_state_held.card_debt > 0 {
+                    msg_second_half
+                        = format!("Type number 1-{} to choose the card at that index as indicated above in your hand. \
+                                  If choosing a Draw4 or Wild, tell the color as well (eg: `2 blue` given 2 has a Draw4 or a Wild). \
+                                  You can only choose a Draw2 or a Draw4 to make the next opponent pick up {} or {} cards respectively. \
+                                  You can also type 'p' to pick up {} cards",
+                                  shrared_state_held.clients_info[idx].hand.len(), shrared_state_held.card_debt + 2, shrared_state_held.card_debt + 4, shrared_state_held.card_debt);
+                } 
+                else {
+                    msg_second_half = format!("Type number 1-{} to choose the card at that index as indicated above in your hand. \
+                                              If choosing a Draw4 or Wild, type the chosen color as well (eg: `2 blue` given 2 has a Draw4 or a Wild). \
+                                              You can also type 'p' to pick up 1 card",
+                    shrared_state_held.clients_info[idx].hand.len());
+                };
                 let hand_copy = shrared_state_held.clients_info[idx].hand.clone();
-                let is_my_chance;
-                is_my_chance = idx == shrared_state_held.curr_client_id_turn;
+                let is_my_turn;
+                is_my_turn = idx == shrared_state_held.curr_client_id_turn;
                 send_packet(&mut shrared_state_held.clients_info[idx].stream,
-                            ServerPacket::SendMsgUpdate { msg, hand: hand_copy, is_my_chance });
+                            ServerPacket::SendMsgUpdate { msg_first_half, hand: hand_copy, msg_second_half, is_my_turn });
             }
             let curr_client_id = shrared_state_held.curr_client_id_turn;
             let client_send_move_packet = read_packet::<ClientPacket>(&mut shrared_state_held.clients_info[curr_client_id].stream);
             match client_send_move_packet {
-                ClientPacket::SendMove { card_idx } => {
-                    let card = shrared_state_held.clients_info[curr_client_id].hand.get_at(card_idx);
-                    println!("{}", card);
+                ClientPacket::SendMoveCard { card_idx, color_choice } => {
+                    let mut card = shrared_state_held.clients_info[curr_client_id].hand.get_at(card_idx);
+                    if color_choice.is_some() {card.set_draw4_or_wild_color(color_choice.unwrap())}; // In case Wild or Draw4, need to set color
+                    let result = verify_move(card.clone(), shrared_state_held.stack.get(0).unwrap().clone(), shrared_state_held.card_debt);
+                    match result {
+                        Ok(_) => {
+                            match card.kind {
+                                card::CardKind::Number => (),
+                                card::CardKind::Skip => shrared_state_held.skip_debt = 1,
+                                card::CardKind::Reverse => shrared_state_held.direction.flip(),
+                                card::CardKind::Draw2 => shrared_state_held.card_debt += 2,
+                                card::CardKind::Draw4 => shrared_state_held.card_debt += 4,
+                                card::CardKind::Wild => {},
+                            }
+                            let mut card = shrared_state_held.clients_info[curr_client_id].hand.pop_at(card_idx);
+                            if color_choice.is_some() {card.set_draw4_or_wild_color(color_choice.unwrap())}; // In case Wild or Draw4, need to set color
+                            shrared_state_held.stack.push_front(card);
+                            shrared_state_held.next_player();
+                            send_packet(&mut shrared_state_held.clients_info[curr_client_id].stream, ServerPacket::SendMoveAcknowledgement { msg: None });
+
+                            // check if player won
+                            if shrared_state_held.clients_info[curr_client_id].hand.len() == 0 {
+                                send_packet(&mut shrared_state_held.clients_info[curr_client_id].stream, ServerPacket::YouWon);
+                                shrared_state_held.clients_info.remove(curr_client_id);
+                                // FIXME: Now there is another bug. Need to rework the
+                                // next_player() code. Basically, I NEED to remove the client when
+                                // it has won and that shifts the indices for every other client...
+                            }
+                        }
+                        Err(e) => {
+                            let mut msg: String = "Invalid Move!\n".to_string();
+                            match e {
+                                game::TurnMoveError::WrongColorOrNumberError => msg += "Cannot place a card of this color or number on the top card.",
+                                game::TurnMoveError::WrongColorOrKindError => msg += "Cannot place a card of this color or kind on the top card.",
+                                game::TurnMoveError::NumberCardOnCardDebtError => msg += "Cannot place this card when you are in card debt. Type 'p' to pick up `card debt` amount of cards or use a draw2 or draw4 to add cards to be picked to the next person.",
+                                game::TurnMoveError::WrongKindError => msg += "Wrong kind.",
+                            }
+                            send_packet(&mut shrared_state_held.clients_info[curr_client_id].stream, ServerPacket::SendMoveAcknowledgement { msg: Some(msg) });
+                        }
+                    }
+                }
+                ClientPacket::SendMovePick => {
+                    let pick_up_amt = if (shrared_state_held.card_debt > 0) {shrared_state_held.card_debt} else {1};
+                    for _ in 0..pick_up_amt {
+                        let card = shrared_state_held.master_deck.pop_random_card();
+                        shrared_state_held.clients_info[curr_client_id].hand.push(card);
+                    }
                     shrared_state_held.next_player();
+                    shrared_state_held.card_debt = 0;
                 }
                 _ => server_received_unexpected_packet!(),
             }
@@ -257,9 +347,9 @@ pub async fn run_server(port : u32, server_is_open : bool) -> Result<(), Box<dyn
                     let mut locked_game_data = shared_state.lock().unwrap();
                     let id = locked_game_data.curr_total_clients_num;
                     locked_game_data.curr_total_clients_num += 1;
-                    let hand = Hand::new(7, &mut locked_game_data.master_deck); //TODO: Make generic over hand-size
+                    let hand = Hand::new(3, &mut locked_game_data.master_deck); //TODO: Make generic over hand-size
                     locked_game_data.clients_info.push(ClientInfo {
-                        id, name: ret_name, hand, stream,
+                        id, name: ret_name, hand, stream, is_active: true,
                     })
                 }
             }
@@ -327,31 +417,79 @@ pub async fn run_client(port : u32, optional_client_name : Option<&String>) -> R
     // At this point, the client has connected to the server!
     loop {
         match read_packet::<ServerPacket>(&mut stream) {
-            // ServerPacket::AuthRequest { required } => todo!(),
-            // ServerPacket::AuthAcknowledged => todo!(),
-            // ServerPacket::AskPreferredName => todo!(),
-            // ServerPacket::SendGivenName { name, optional_msg } => todo!(),
-            ServerPacket::SendMsg { msg } => {println!("{}", msg.unwrap())}
-            ServerPacket::SendMsgUpdate { msg, hand, is_my_chance } => {
-                println!("{}", msg);
+            ServerPacket::SendMsgUpdate { msg_first_half, hand, msg_second_half, is_my_turn } => {
+                println!("{}", msg_first_half);
                 println!("{}", hand);
-                if is_my_chance {
-                    println!("It is your turn!\nPlease choose the index of the card you want to play!\n");
-                    loop {
-                        let mut card_idx_str : String = "".to_string();
-                        io::stdin().read_line(&mut card_idx_str).expect("FATAL ERROR: Could not read line");
-                        match card_idx_str.trim().parse::<usize>() {
-                            Ok(card_idx) if card_idx > 0 && card_idx <= hand.len() => {
-                                send_packet(&mut stream, ClientPacket::SendMove { card_idx });
-                                break;
+                match is_my_turn {
+                    // FIXME: Kinda rework on this. Implement case for 2 blue etc.
+                    true => {
+                        print!("It is your turn! ");
+                        println!("{}", msg_second_half);
+                        loop {
+                            let mut input_str : String = "".to_string();
+                            io::stdin().read_line(&mut input_str).expect("FATAL ERROR: Could not read line");
+                            let mut input_words = input_str.trim().split_whitespace();
+                            let first_input = input_words.next(); // Must be either a number or 'p'
+                            if first_input.is_none() {bunt::println!("{$red}Invalid Input, try again:{/$}"); continue;}
+                            match first_input.unwrap().trim().parse::<usize>() {
+                                // we were able to parse the first_input as a number and the idx is
+                                // in a valid range
+                                Ok(card_idx) if card_idx > 0 && card_idx <= hand.len() => {
+                                    match hand.get_at(card_idx).kind {
+                                        card::CardKind::Draw4 | card::CardKind::Wild  => {
+                                            let second_input = input_words.next();
+                                            if second_input.is_none() {
+                                                bunt::println!("{$red}Invalid Input. \
+                                                               You must include a color when choosing the Draw4 or wild card, try again:{/$}");
+                                                continue;
+                                            }
+                                            let chosen_color : Color = match second_input.unwrap().chars().next() {
+                                                Some(c) if c.to_ascii_lowercase() == 'r' => Color::Red,
+                                                Some(c) if c.to_ascii_lowercase() == 'g' => Color::Green,
+                                                Some(c) if c.to_ascii_lowercase() == 'b' => Color::Blue,
+                                                Some(c) if c.to_ascii_lowercase() == 'y' => Color::Yellow,
+                                                Some(_) => {bunt::println!("{$red}Invalid Input. Could not parse color choice. Try again:{/$}"); continue;}
+                                                None => {bunt::println!("{$red}Invalid Input, try again:{/$}"); continue;}
+                                            };
+                                            send_packet(&mut stream, ClientPacket::SendMoveCard { card_idx, color_choice: Some(chosen_color) });
+                                            break;
+                                    }
+                                    _ => {
+                                        send_packet(&mut stream, ClientPacket::SendMoveCard { card_idx, color_choice: None});
+                                        break;
+                                    }
+                                }
                             }
-                            _ => bunt::println!("{$red}Invalid Input, try again:{/$}")
+                                Ok(card_idx) if !(card_idx > 0 && card_idx <= hand.len()) => {bunt::println!("{$red}Invalid Input. Card index not in range! try again:{/$}"); continue;}
+                                _ => {
+                                    if input_str.trim().to_lowercase() == "p".to_string() {
+                                        send_packet(&mut stream, ClientPacket::SendMovePick);
+                                        break;
+                                    }
+                                    // Not a number, not 'p', but also not whitespace
+                                    else {
+                                        bunt::println!("{$red}Invalid Input, try again:{/$}");
+                                        continue;
+                                    }
+                                }
+                            }
                         }
                     }
+                    false => println!("It is not your turn."),
                 }
+            }
+            ServerPacket::SendMoveAcknowledgement { msg } => {
+                match msg {
+                    Some(msg) => bunt::println!("{$red}{}{/$}", msg),
+                    None => (),
+                }
+            }
+            ServerPacket::YouWon => {
+                bunt::println!("{$yellow}You Won!!{/$}");
+                break;
             }
             _ => {}
         }
     }
-    // Ok(())
+    Ok(())
 }
