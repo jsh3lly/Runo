@@ -90,8 +90,7 @@ impl Deck {
     }
 
     pub fn pop_random_card(&mut self) -> Card {
-        // self.0.remove(thread_rng().gen_range(0..self.0.len()))
-        Card::new_number(1, Green)
+        self.0.remove(thread_rng().gen_range(0..self.0.len()))
     }
 
     pub fn push_card(&mut self, card: Card) {
@@ -109,14 +108,14 @@ pub struct Hand(Vec<Card>);
 impl Hand {
     pub fn new(init_hand_size : usize, deck : &mut Deck) -> Hand {
         let mut cards : Vec<Card> = vec![];
-        // cards.push(Card::new_power(CardKind::Draw2, Some(Green)));
-        // cards.push(Card::new_power(CardKind::Reverse, Some(Green)));
-        // cards.push(Card::new_power(CardKind::Skip, Some(Green)));
-        // cards.push(Card::new_power(CardKind::Wild, None));
-        // cards.push(Card::new_power(CardKind::Draw4, None));
-        cards.push(Card::new_number(1, Green));
-        cards.push(Card::new_power(Reverse, Some(Green)));
-        // (0..init_hand_size).for_each(|i| cards.push(deck.pop_random_card()));
+        cards.push(Card::new_power(CardKind::Draw2, Some(Green)));
+        cards.push(Card::new_power(CardKind::Reverse, Some(Green)));
+        cards.push(Card::new_power(CardKind::Skip, Some(Green)));
+        cards.push(Card::new_power(CardKind::Wild, None));
+        cards.push(Card::new_power(CardKind::Draw4, None));
+        // cards.push(Card::new_number(1, Green));
+        // cards.push(Card::new_power(Reverse, Some(Green)));
+        (0..init_hand_size).for_each(|_| cards.push(deck.pop_random_card()));
         Hand(cards)
     }
 

@@ -21,6 +21,7 @@ pub enum ServerPacket {
     SendMsgUpdate {msg_first_half: String, hand: Hand, msg_second_half : String, is_my_turn: bool},
     SendMoveAcknowledgement {msg: Option<String>},
     YouWon,
+    YouLost,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -30,6 +31,11 @@ pub enum ClientPacket {
     SendPreferredName {optional_client_name: Option<String>},
     SendMoveCard {card_idx: usize, color_choice: Option<Color>},
     SendMovePick,
+}
+
+#[derive(Clone)]
+pub enum TokioChannelPacket {
+    StopClientsFromJoining,
 }
 
 impl TCPPacket for ClientPacket{}
@@ -52,9 +58,4 @@ pub fn send_packet<T : Serialize + TCPPacket>(stream : &mut TcpStream, packet : 
         Ok(_) => bunt::println!("{$green}Packet Sent!{/$}"),
         Err(_) => bunt::println!("{$red}Error sending packet{/$}"),
     };
-}
-
-#[derive(Clone, Debug)]
-pub enum GameThreadBroadcastPacket {
-    StartGame,
 }

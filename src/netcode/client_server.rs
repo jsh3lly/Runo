@@ -1,8 +1,8 @@
-use std::{net::{TcpListener, TcpStream}, io, sync::{Arc, Mutex}, collections::VecDeque, };
+use std::{net::{TcpListener, TcpStream}, io, sync::{Arc, Mutex}, collections::VecDeque};
 use rand::Rng;
 use tokio::sync::broadcast;
 
-use crate::{netcode::packets::{send_packet, ServerPacket, read_packet, ClientPacket, GameThreadBroadcastPacket}, card::{Deck, Hand, Color}, game::verify_move};
+use crate::{netcode::packets::{send_packet, ServerPacket, read_packet, ClientPacket, TokioChannelPacket, }, card::{Deck, Hand, Color}, game::verify_move};
 use crate::netcode::misc::Names;
 use crate::card;
 use crate::game;
@@ -81,26 +81,70 @@ impl GlobalGameData {
             if client_idx == self.curr_client_id_turn {
                 ret_string += "* ";
             }
+            else {
+                ret_string += "  ";
+            }
             ret_string += &self.clients_info[client_idx].name;
             ret_string += "\n"
         }
         ret_string
     }
 
-    /// Goes to the next player after accounting for skip_debt and direction
+    /// Goes to the next player after accounting for skip_debt, direction, and inactive players
     fn next_player(&mut self) {
-        let lhs = self.curr_client_id_turn as isize;
-        let rhs : isize;
-        match self.direction {
-            Direction::Positive => rhs = 1 + self.skip_debt as isize,
-            Direction::Negative => rhs = - (1 + self.skip_debt as isize),
+        fn next_client_id_wrapping(global_game_data : &mut GlobalGameData) {
+            let rhs: isize;
+            match global_game_data.direction {
+                Direction::Positive => rhs = 1,
+                Direction::Negative => rhs = -1,
+            }
+            global_game_data.curr_client_id_turn = 
+                (global_game_data.curr_client_id_turn as isize + rhs)
+                .rem_euclid(global_game_data.curr_total_clients_num as isize) as usize;
         }
-        let next_player = (lhs + rhs).rem_euclid(self.curr_total_clients_num as isize);
+
+        loop {
+            next_client_id_wrapping(self);
+            if !self.clients_info[self.curr_client_id_turn].is_active {
+                continue;
+            }
+            if self.skip_debt > 0 {
+                self.skip_debt = 0;
+                continue;
+            }
+            break;
+        }
+
+        // let rhs : isize;
+        // match self.direction {
+        //     Direction::Positive => rhs = 1 + self.skip_debt as isize,
+        //     Direction::Negative => rhs = - (1 + self.skip_debt as isize),
+        // }
+        // let next_player = (lhs + rhs).rem_euclid(self.curr_total_clients_num as isize);
         // if next_player < 0 || next_player >= self.curr_total_clients_num as isize {
         //     next_player = next_player % self.curr_total_clients_num as isize;
         // }
-        self.curr_client_id_turn = next_player as usize;
-        self.skip_debt = 0;
+        // self.curr_client_id_turn = next_player as usize;
+        // self.skip_debt = 0;
+    }
+
+    /// If game is over, returns Some(id) of client who lost, otherwise returns None
+    fn is_game_over(&mut self) -> Option<usize> {
+        let mut inactive_clients : usize = 0;
+        let mut loser_client = 0; // last active client
+        for client_idx in 0..self.clients_info.len() {
+            let client = &self.clients_info[client_idx];
+            if !client.is_active {
+                inactive_clients += 1;
+            }
+            else {
+                loser_client = client_idx;
+            }
+        }
+        match inactive_clients == self.clients_info.len() - 1 {
+            true => Some(loser_client),
+            false => None
+        }
     }
 }
 
@@ -146,7 +190,7 @@ pub async fn run_server(port : u32, server_is_open : bool) -> Result<(), Box<dyn
         clients_info: vec![],
     }));
 
-    let (tx, _) = broadcast::channel::<GameThreadBroadcastPacket>(32);
+    let (tx, _) = broadcast::channel::<TokioChannelPacket>(32);
 
     /// IMP: This function holds shared_state for a long time
     async fn game_thread(shared_state: Arc<Mutex<GlobalGameData>>) {
@@ -181,6 +225,7 @@ pub async fn run_server(port : u32, server_is_open : bool) -> Result<(), Box<dyn
                             ServerPacket::SendMsgUpdate { msg_first_half, hand: hand_copy, msg_second_half, is_my_turn });
             }
             let curr_client_id = shrared_state_held.curr_client_id_turn;
+            println!("DEBUG: {}", curr_client_id);
             let client_send_move_packet = read_packet::<ClientPacket>(&mut shrared_state_held.clients_info[curr_client_id].stream);
             match client_send_move_packet {
                 ClientPacket::SendMoveCard { card_idx, color_choice } => {
@@ -190,7 +235,7 @@ pub async fn run_server(port : u32, server_is_open : bool) -> Result<(), Box<dyn
                     match result {
                         Ok(_) => {
                             match card.kind {
-                                card::CardKind::Number => (),
+                                card::CardKind::Number => {},
                                 card::CardKind::Skip => shrared_state_held.skip_debt = 1,
                                 card::CardKind::Reverse => shrared_state_held.direction.flip(),
                                 card::CardKind::Draw2 => shrared_state_held.card_debt += 2,
@@ -206,7 +251,17 @@ pub async fn run_server(port : u32, server_is_open : bool) -> Result<(), Box<dyn
                             // check if player won
                             if shrared_state_held.clients_info[curr_client_id].hand.len() == 0 {
                                 send_packet(&mut shrared_state_held.clients_info[curr_client_id].stream, ServerPacket::YouWon);
-                                shrared_state_held.clients_info.remove(curr_client_id);
+                                shrared_state_held.clients_info[curr_client_id].is_active = false;
+                                match shrared_state_held.is_game_over() {
+                                    Some(id) => {
+                                        bunt::println!("{$yellow}All but one clients are in-active, Game Over!{/$}");
+                                        send_packet(&mut shrared_state_held.clients_info[id].stream, ServerPacket::YouLost);
+                                        shrared_state_held.game_phase = GamePhase::GameOver;
+                                        return;
+                                    }
+                                    None => {},
+                                }
+                                // shrared_state_held.clients_info.remove(curr_client_id);
                                 // FIXME: Now there is another bug. Need to rework the
                                 // next_player() code. Basically, I NEED to remove the client when
                                 // it has won and that shifts the indices for every other client...
@@ -279,7 +334,13 @@ pub async fn run_server(port : u32, server_is_open : bool) -> Result<(), Box<dyn
                     else {
                         // tx.send(GameThreadBroadcastPacket::StartGame).unwrap();
                         bunt::println!("{$magenta}Game Started!{/$}");
+                        // FIXME: Can possibly run this async (without await). To do that, need to
+                        // not hold mutex throughout the lifetime of game_thread()...
                         tokio::spawn(game_thread(shared_state.clone())).await;
+                        if shared_state.lock().unwrap().game_phase == GamePhase::GameOver {
+                            println!("Game has ended. Thanks for playing! :)");
+                            return Ok::<(), ()>(())
+                        }
                     }
                 }
             }
@@ -347,7 +408,10 @@ pub async fn run_server(port : u32, server_is_open : bool) -> Result<(), Box<dyn
                     let mut locked_game_data = shared_state.lock().unwrap();
                     let id = locked_game_data.curr_total_clients_num;
                     locked_game_data.curr_total_clients_num += 1;
-                    let hand = Hand::new(3, &mut locked_game_data.master_deck); //TODO: Make generic over hand-size
+                    let hand = Hand::new(7, &mut locked_game_data.master_deck); //TODO: let users
+                                                                                //decide how many
+                                                                                //cards to start
+                                                                                //with
                     locked_game_data.clients_info.push(ClientInfo {
                         id, name: ret_name, hand, stream, is_active: true,
                     })
@@ -486,6 +550,10 @@ pub async fn run_client(port : u32, optional_client_name : Option<&String>) -> R
             }
             ServerPacket::YouWon => {
                 bunt::println!("{$yellow}You Won!!{/$}");
+                break;
+            }
+            ServerPacket::YouLost => {
+                bunt::println!("{$red}You Lost.{/$}");
                 break;
             }
             _ => {}
