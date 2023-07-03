@@ -2,10 +2,13 @@
 name = "runo"
 version = "0.1.0"
 edition = "2021"
+authors = ["Jyotirmay Shelly <jyotirmay.shelly@gmail.com>"]
 description = "Play Uno on the terminal over the internet with your friends!"
 repository = "https://github.com/StaticESC/Runo"
 license = "MIT"
 keywords = ["game", "card"]
+categories = ["games"]
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
