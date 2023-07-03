@@ -7,6 +7,10 @@ Play Uno on the terminal over the internet with your friends, written in Rust!
 * cargo
 * ngrok
 
+## Demonstration
+
+https://github.com/StaticESC/Runo/assets/44647704/93b6c890-7fda-4ee7-a1a6-a527818085fe
+
 ## Getting started (one-time setup)
 ### Cargo
 To install cargo (and the rust compiler), do `curl https://sh.rustup.rs -sSf | sh`
