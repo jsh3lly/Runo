@@ -1,4 +1,4 @@
-use clap::{Parser, ValueEnum, command, arg, ArgGroup, value_parser};
+use clap::{command, arg, ArgGroup, value_parser};
 
 // Attaching modules to module tree
 mod netcode;

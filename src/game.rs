@@ -8,27 +8,15 @@ macro_rules! game_logic_bug_panic {
     };
 }
 
-pub enum TurnMoveError {
-    WrongColorOrNumberError,
-    WrongColorOrKindError,
-    NumberCardOnCardDebtError,
-    WrongKindError,
-}
-
-enum Move {
-    Card(Card),
-    PickUpCard
-}
-
 /// Remember: top_card and player_card will have a color at this point.
-pub fn verify_move(player_card: Card, top_card: Card, card_debt: usize, ) -> Result<(), TurnMoveError> {
+pub fn verify_move(player_card: Card, top_card: Card, card_debt: usize, ) -> Result<(), String> {
     if card_debt > 0 {
         match (top_card.color, top_card.kind, player_card.color, player_card.kind) {
             (Some(_), CardKind::Draw2, Some(_), CardKind::Draw2 | CardKind::Draw4) => Ok(()),
             (Some(t_c), CardKind::Draw4, Some(p_c), CardKind::Draw2) if p_c == t_c => Ok(()),
             (Some(_), CardKind::Draw4, Some(_), CardKind::Draw4) => Ok(()),
             (None, _, None, _) => game_logic_bug_panic!(),
-            _ => Err(TurnMoveError::WrongKindError),
+            _ => Err("Cannot play this card.".to_string()),
         }
     }
     else {
@@ -46,7 +34,7 @@ pub fn verify_move(player_card: Card, top_card: Card, card_debt: usize, ) -> Res
             (Some(_), Some(_), _, CardKind::Wild | CardKind::Draw4, _, _) => Ok(()),
             // if top card and player card is number kind and numbers are same
             (_, _, CardKind::Number, CardKind::Number, Some(t_n), Some(p_n)) if t_n == p_n => Ok(()),
-            _ => Err(TurnMoveError::WrongKindError),
+            _ => Err("Cannot play this card.".to_string()),
         }
     }
     // match player_card.kind {

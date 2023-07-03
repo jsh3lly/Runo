@@ -1,16 +1,11 @@
-use std::{net::{TcpListener, TcpStream}, io, sync::{Arc, Mutex}, collections::VecDeque, process::exit, };
-use rand::Rng;
-use tokio::sync::broadcast;
+use std::{net::{TcpListener, TcpStream}, io, sync::{Arc, Mutex}, collections::VecDeque, };
 
-use crate::{netcode::packets::{send_packet, ServerPacket, read_packet, ClientPacket, TokioChannelPacket, }, card::{Deck, Hand, Color}, game::verify_move};
+use crate::{netcode::packets::{send_packet, ServerPacket, read_packet, ClientPacket,}, card::{Deck, Hand, Color}, game::verify_move};
 use crate::netcode::misc::Names;
 use crate::card;
-use crate::game;
-use crate::netcode::ngrok;
 
 use card::Card;
 
-const MAX_PLAYERS_LIMIT : u8 = 10;
 macro_rules! cls {
     () => {
         print!("\x1B[2J\x1b[1;1H");
@@ -54,7 +49,6 @@ impl Direction {
 
 #[derive(Debug)]
 struct ClientInfo {
-    id: usize,
     stream: TcpStream,
     name: String,
     hand: Hand,
@@ -85,6 +79,7 @@ impl GlobalGameData {
             else {
                 ret_string += "  ";
             }
+            ret_string += &format!("({}) ", self.clients_info[client_idx].hand.len()).to_string();
             ret_string += &self.clients_info[client_idx].name;
             ret_string += "\n"
         }
@@ -173,8 +168,6 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
 
     bunt::println!("{$green}The server has been started{/$}");
     let listener = TcpListener::bind(format!("localhost:{port}"))?;
-    let mut rng = rand::thread_rng();
-    let join_code = rng.gen_range(100_000..999_999);
     let mut deck = Deck::new();
     let mut stack_card;
     loop {
@@ -208,19 +201,16 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
         clients_info: vec![],
     }));
 
-    let (tx, _) = broadcast::channel::<TokioChannelPacket>(32);
-
     /// IMP: This function holds shared_state for a long time
     async fn game_thread(shared_state: Arc<Mutex<GlobalGameData>>) {
         let mut shrared_state_held = shared_state.lock().unwrap();
-        dbg!(&shrared_state_held.game_phase);
         shrared_state_held.game_phase = GamePhase::InGame;
         loop {
             // provide updates to players
             for idx in 0..shrared_state_held.clients_info.len() {
                 if !shrared_state_held.clients_info[idx].is_active {continue;}
                 let mut msg_first_half = "\nPlayers: \n".to_string() + &shrared_state_held.get_players_string() + "\n";
-                msg_first_half += &format!("Topmost card: {}\n", shrared_state_held.stack.get(0).unwrap()).to_string();
+                msg_first_half += &format!("Topmost card: {}\n", shrared_state_held.stack.get(0).unwrap().get_colorized_repr()).to_string();
                 let msg_second_half;
                 if shrared_state_held.card_debt > 0 {
                     msg_second_half
@@ -243,14 +233,9 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
                             ServerPacket::SendMsgUpdate { msg_first_half, hand: hand_copy, msg_second_half, is_my_turn });
             }
             let curr_client_id = shrared_state_held.curr_client_id_turn;
-            println!("DEBUG: {}", curr_client_id);
             let client_send_move_packet = read_packet::<ClientPacket>(&mut shrared_state_held.clients_info[curr_client_id].stream);
             match client_send_move_packet {
                 ClientPacket::SendMoveCard { card_idx, color_choice } => {
-                    if !(0..shrared_state_held.clients_info[curr_client_id].hand.len()).contains(&card_idx) {
-                        send_packet(&mut shrared_state_held.clients_info[curr_client_id].stream, ServerPacket::SendMoveAcknowledgement { msg: Some("Nice Try hacking the client :)".to_string()) });
-                        continue;
-                    }
                     let mut card = shrared_state_held.clients_info[curr_client_id].hand.get_at(card_idx);
                     if color_choice.is_some() {card.set_draw4_or_wild_color(color_choice.unwrap())}; // In case Wild or Draw4, need to set color
                     let result = verify_move(card.clone(), shrared_state_held.stack.get(0).unwrap().clone(), shrared_state_held.card_debt);
@@ -277,7 +262,7 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
                                 shrared_state_held.clients_info[curr_client_id].is_active = false;
                                 match shrared_state_held.is_game_over() {
                                     Some(id) => {
-                                        bunt::println!("{$yellow}All but one clients are in-active, Game Over!{/$}");
+                                        bunt::println!("{$yellow}All but one clients are inactive, Game Over!{/$}");
                                         send_packet(&mut shrared_state_held.clients_info[id].stream, ServerPacket::YouLost);
                                         shrared_state_held.game_phase = GamePhase::GameOver;
                                         return;
@@ -288,19 +273,12 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
                         Err(e) => {
-                            let mut msg: String = "Invalid Move!\n".to_string();
-                            match e {
-                                game::TurnMoveError::WrongColorOrNumberError => msg += "Cannot place a card of this color or number on the top card.",
-                                game::TurnMoveError::WrongColorOrKindError => msg += "Cannot place a card of this color or kind on the top card.",
-                                game::TurnMoveError::NumberCardOnCardDebtError => msg += "Cannot place this card when you are in card debt. Type 'p' to pick up `card debt` amount of cards or use a draw2 or draw4 to add cards to be picked to the next person.",
-                                game::TurnMoveError::WrongKindError => msg += "Wrong kind.",
-                            }
-                            send_packet(&mut shrared_state_held.clients_info[curr_client_id].stream, ServerPacket::SendMoveAcknowledgement { msg: Some(msg) });
+                            send_packet(&mut shrared_state_held.clients_info[curr_client_id].stream, ServerPacket::SendMoveAcknowledgement { msg: Some(e) });
                         }
                     }
                 }
                 ClientPacket::SendMovePick => {
-                    let pick_up_amt = if (shrared_state_held.card_debt > 0) {shrared_state_held.card_debt} else {1};
+                    let pick_up_amt = if shrared_state_held.card_debt > 0 {shrared_state_held.card_debt} else {1};
                     for _ in 0..pick_up_amt {
                         let card = shrared_state_held.master_deck.pop_random_card();
                         shrared_state_held.clients_info[curr_client_id].hand.push(card);
@@ -311,17 +289,6 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
                 _ => server_received_unexpected_packet!(),
             }
         }
-        // loop {
-        //     
-        // }
-        // println!("Hello world");
-        // println!("{}", shared_state.lock().unwrap().get_players_string());
-        // shared_state.lock().unwrap().next_player();
-        // println!("{}", shared_state.lock().unwrap().get_players_string());
-        // shared_state.lock().unwrap().next_player();
-        // println!("{}", shared_state.lock().unwrap().get_players_string());
-        
-        // send_packet(&mut shared_state.lock().unwrap().clients_info[0].stream, ServerPacket::SendMsg { msg: Some(shared_state.lock().unwrap().get_players_string()) });
     }
 
     /*
@@ -356,9 +323,9 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
                         bunt::println!("{$magenta}Game Started!{/$}");
                         // FIXME: Can possibly run this async (without await). To do that, need to
                         // not hold mutex throughout the lifetime of game_thread()...
-                        tokio::spawn(game_thread(shared_state.clone())).await;
+                        tokio::spawn(game_thread(shared_state.clone())).await.unwrap();
                         if shared_state.lock().unwrap().game_phase == GamePhase::GameOver {
-                            println!("Game has ended. Thanks for playing! :)");
+                            bunt::println!("{$yellow}Game has ended. Thanks for playing! :){/$}");
                             return Ok::<(), ()>(())
                         }
                     }
@@ -374,19 +341,17 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let (mut stream, _) = listener.accept()?;
         let shared_state = shared_global_game_data.clone();
-        let mut rx = tx.subscribe();
 
         // for every new connection
         tokio::spawn(async move {
-            bunt::println!("{$green}A client connected!{/$}");
-            send_packet(&mut stream, ServerPacket::AuthRequest {required: false});
 
         // ==== Setting Client Name ====
         send_packet(&mut stream, ServerPacket::AskPreferredName);
         // Wait for client to send thier name
+        let mut ret_name = "Unnamed".to_string();
         match read_packet::<ClientPacket>(&mut stream) {
             ClientPacket::SendPreferredName { optional_client_name} => {
-                let (ret_name, ret_msg);
+                let ret_msg;
                 match optional_client_name {
                     Some(name) => {
                         let specific_name_result = shared_state.lock().unwrap().names.get_specific_name(name);
@@ -403,19 +368,19 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
                 send_packet(&mut stream, ServerPacket::SendGivenName { name: ret_name.clone(), optional_msg: ret_msg });
                 {
                     let mut locked_game_data = shared_state.lock().unwrap();
-                    let id = locked_game_data.curr_total_clients_num;
                     locked_game_data.curr_total_clients_num += 1;
                     let hand = Hand::new(7, &mut locked_game_data.master_deck); //TODO: let users
                                                                                 //decide how many
                                                                                 //cards to start
                                                                                 //with
                     locked_game_data.clients_info.push(ClientInfo {
-                        id, name: ret_name, hand, stream, is_active: true,
+                        name: ret_name.clone(), hand, stream, is_active: true,
                     })
                 }
             }
             _ => server_received_unexpected_packet!(),
         }
+        bunt::println!("{$green}{} has joined the game!{/$}", ret_name);
         // At this point, the client has connected to the server!
         });
     }
@@ -424,42 +389,7 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
 pub async fn run_client(optional_client_name : Option<&String>, join_code_: String) -> Result<(), Box<dyn std::error::Error>> {
     let join_code_pair = join_code_.split_at(1);
     let addr = format!("{}.tcp.ngrok.io:{}", join_code_pair.0, join_code_pair.1);
-    // let addr = format!("localhost:8080", );
-    println!("{}", addr);
     let mut stream = TcpStream::connect(addr)?;
-    // Auth loop. Keeps on going if client gives wrong join_code. Ends when it gives right join_code
-    let mut is_retry = false; // retry would be when the client sends a wrong code to the server
-    loop {
-        match read_packet::<ServerPacket>(&mut stream) {
-            ServerPacket::AuthRequest { required } => {
-                match required {
-                    true => {
-                        if is_retry {bunt::println!("{$red}Wrong join code{/$}")}
-                        bunt::println!("{$yellow}Please provide the join code generated by the server: {/$}");
-                        loop {
-                            let mut code_str = String::new();
-                            io::stdin().read_line(&mut code_str).expect("FATAL ERROR: Could not read line");
-                            match code_str.trim().parse::<usize>() {
-                                Ok(join_code) => {
-                                    send_packet(&mut stream, ClientPacket::AuthResponse { join_code });
-                                    is_retry = true;
-                                    break;
-                                }
-                                Err(_) => bunt::println!("{$red}Could not parse input, try again:{/$}")
-                            }
-                        }
-                    }
-                    false => {bunt::println!("{$green}Successfully connected to server!{/$}");break;}
-                }
-            }
-            ServerPacket::AuthAcknowledged => {
-                bunt::println!("{$green}Successfully connected to server!{/$}");
-                break;
-            }
-            _ => server_received_unexpected_packet!()
-        }
-    }
-
     match read_packet::<ServerPacket>(&mut stream) {
         ServerPacket::AskPreferredName => {
             send_packet(&mut stream, ClientPacket::SendPreferredName { optional_client_name: optional_client_name.cloned() })
@@ -479,8 +409,10 @@ pub async fn run_client(optional_client_name : Option<&String>, join_code_: Stri
     }
 
     // At this point, the client has connected to the server!
+    cls!();
     loop {
-        match read_packet::<ServerPacket>(&mut stream) {
+        let packet = read_packet::<ServerPacket>(&mut stream);
+        match packet {
             ServerPacket::SendMsgUpdate { msg_first_half, hand, msg_second_half, is_my_turn } => {
                 println!("{}", msg_first_half);
                 println!("{}", hand);
@@ -516,10 +448,12 @@ pub async fn run_client(optional_client_name : Option<&String>, join_code_: Stri
                                                 None => {bunt::println!("{$red}Invalid Input, try again:{/$}"); continue;}
                                             };
                                             send_packet(&mut stream, ClientPacket::SendMoveCard { card_idx, color_choice: Some(chosen_color) });
+                                            cls!();
                                             break;
                                     }
                                     _ => {
                                         send_packet(&mut stream, ClientPacket::SendMoveCard { card_idx, color_choice: None});
+                                        cls!();
                                         break;
                                     }
                                 }
@@ -528,6 +462,7 @@ pub async fn run_client(optional_client_name : Option<&String>, join_code_: Stri
                                 _ => {
                                     if input_str.trim().to_lowercase() == "p".to_string() {
                                         send_packet(&mut stream, ClientPacket::SendMovePick);
+                                        cls!();
                                         break;
                                     }
                                     // Not a number, not 'p', but also not whitespace
@@ -539,7 +474,7 @@ pub async fn run_client(optional_client_name : Option<&String>, join_code_: Stri
                             }
                         }
                     }
-                    false => println!("It is not your turn."),
+                    false => {println!("It is not your turn."); cls!();},
                 }
             }
             ServerPacket::SendMoveAcknowledgement { msg } => {

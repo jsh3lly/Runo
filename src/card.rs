@@ -3,13 +3,11 @@ use core::fmt;
 use strum::IntoEnumIterator;
 use strum_macros::{EnumIter, Display};
 use CardKind::*;
-use Color::*;
+use colored::*;
 
 use rand::{thread_rng, Rng};
-use rand::seq::SliceRandom;
 
 use serde::{Serialize, Deserialize};
-use bincode::{serialize, deserialize, serialize_into};
 
 #[derive(Debug, Display, Serialize, Deserialize, Clone, PartialEq)]
 pub enum CardKind {Number, Skip, Reverse, Draw2, Draw4, Wild}
@@ -38,11 +36,26 @@ impl Card {
     }
     pub fn set_draw4_or_wild_color(&mut self, color: Color) {
         match self.kind {
-            Draw4 | Wild => {self.color = Some(color); println!("HELLO");}
+            Draw4 | Wild => self.color = Some(color),
             _ => panic!("This should not happen!!"),
         }
     }
+
+    pub fn get_colorized_repr(&self) -> String {
+        let color_str = match self.color {
+            Some(Color::Red) => "red",
+            Some(Color::Green) => "green",
+            Some(Color::Blue) => "blue",
+            Some(Color::Yellow) => "yellow",
+            None => "cyan"
+        };
+        self.to_string().color(color_str).to_string()
+    }
 }
+
+// fn result_transmuter(res: io::Result) -> fmt::Result {
+//
+// }
 
 impl fmt::Display for Card {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -53,7 +66,7 @@ impl fmt::Display for Card {
                     _ => {write!(f, "{} {}", self.color.unwrap(), self.kind)}
                 }
             }
-            None => {write!(f, "{}", self.kind)}
+            None => {f.write_str(&format!("{}", self.kind).black())}
         }
     }
 }
@@ -90,15 +103,12 @@ impl Deck {
     }
 
     pub fn pop_random_card(&mut self) -> Card {
+        // Card::new_number(1, Color::Green)
         self.0.remove(thread_rng().gen_range(0..self.0.len()))
     }
 
     pub fn push_card(&mut self, card: Card) {
         self.0.push(card);
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
     }
 
 }
@@ -108,13 +118,8 @@ pub struct Hand(Vec<Card>);
 impl Hand {
     pub fn new(init_hand_size : usize, deck : &mut Deck) -> Hand {
         let mut cards : Vec<Card> = vec![];
-        // cards.push(Card::new_power(CardKind::Draw2, Some(Green)));
-        // cards.push(Card::new_power(CardKind::Reverse, Some(Green)));
-        // cards.push(Card::new_power(CardKind::Skip, Some(Green)));
-        // cards.push(Card::new_power(CardKind::Wild, None));
-        // cards.push(Card::new_power(CardKind::Draw4, None));
-        // cards.push(Card::new_number(1, Green));
-        // cards.push(Card::new_power(Reverse, Some(Green)));
+        // cards.push(Card::new_number(2, Color::Green));
+        // cards.push(Card::new_number(3, Color::Green));
         (0..init_hand_size).for_each(|_| cards.push(deck.pop_random_card()));
         Hand(cards)
     }
@@ -141,7 +146,19 @@ impl fmt::Display for Hand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Your hand is:").unwrap();
         for i in 0..self.0.len() {
-            write!(f, "[{}]  {}\n", i+1, self.0[i]).unwrap();
+            let color_str = match self.0[i].color {
+                Some(color) => {
+                    match color {
+                        Color::Red => "red",
+                        Color::Green => "green",
+                        Color::Blue => "blue",
+                        Color::Yellow => "yellow"
+                    }
+                }
+                None => "cyan",
+            };
+            let uncolored_str = format!("[{}]  {}\n", i+1, self.0[i]);
+            f.write_str(&format!("{}", uncolored_str.color(color_str))).unwrap();
         }
         Ok(())
     }
@@ -149,7 +166,7 @@ impl fmt::Display for Hand {
 
 impl fmt::Debug for Hand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "Hand details hidden for obvious reasons ;)");
+        writeln!(f, "Hand details hidden for obvious reasons ;)").unwrap();
         Ok(())
     }
 }

@@ -46,7 +46,7 @@ impl Names {
     }
 
     pub fn get_specific_name(&mut self, name : String) -> Result<String, ()> {
-        if name.contains('#') || name.contains(char::is_whitespace) {
+        if name.contains('#') {
             return Err(());
         }
         let ret_name = self.validate_and_register_name(name);
@@ -76,10 +76,6 @@ mod tests {
         let mut names = Names::new();
         let name1 = names.get_specific_name("StaticESC#1234".to_string());
         assert!(name1.is_err());
-        let name2 = names.get_specific_name("Multi word name".to_string());
-        assert!(name2.is_err());
-        let name3 = names.get_specific_name("#THIS NAME IS COOL".to_string());
-        assert!(name3.is_err());
     }
 }
 
