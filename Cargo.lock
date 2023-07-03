@@ -441,7 +441,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "runo"
+name = "runo-game"
 version = "0.1.0"
 dependencies = [
  "bincode",
