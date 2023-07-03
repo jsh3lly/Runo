@@ -1,4 +1,4 @@
-use std::{net::{TcpListener, TcpStream}, io, sync::{Arc, Mutex}, collections::VecDeque, process::exit};
+use std::{net::{TcpListener, TcpStream}, io, sync::{Arc, Mutex}, collections::VecDeque, process::exit, };
 use rand::Rng;
 use tokio::sync::broadcast;
 
@@ -149,7 +149,7 @@ impl GlobalGameData {
     }
 }
 
-pub async fn run_server(port : u32, server_is_open : bool) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
     // let listener = ngrok::Session::builder()
     //     .authtoken_from_env()
     //     .connect()
@@ -175,10 +175,6 @@ pub async fn run_server(port : u32, server_is_open : bool) -> Result<(), Box<dyn
     let listener = TcpListener::bind(format!("localhost:{port}"))?;
     let mut rng = rand::thread_rng();
     let join_code = rng.gen_range(100_000..999_999);
-    if !server_is_open {
-        bunt::println!("{$green}Joining code is: {} {/$}", join_code);
-    }
-
     let mut deck = Deck::new();
     let mut stack_card;
     loop {
@@ -251,6 +247,10 @@ pub async fn run_server(port : u32, server_is_open : bool) -> Result<(), Box<dyn
             let client_send_move_packet = read_packet::<ClientPacket>(&mut shrared_state_held.clients_info[curr_client_id].stream);
             match client_send_move_packet {
                 ClientPacket::SendMoveCard { card_idx, color_choice } => {
+                    if !(0..shrared_state_held.clients_info[curr_client_id].hand.len()).contains(&card_idx) {
+                        send_packet(&mut shrared_state_held.clients_info[curr_client_id].stream, ServerPacket::SendMoveAcknowledgement { msg: Some("Nice Try hacking the client :)".to_string()) });
+                        continue;
+                    }
                     let mut card = shrared_state_held.clients_info[curr_client_id].hand.get_at(card_idx);
                     if color_choice.is_some() {card.set_draw4_or_wild_color(color_choice.unwrap())}; // In case Wild or Draw4, need to set color
                     let result = verify_move(card.clone(), shrared_state_held.stack.get(0).unwrap().clone(), shrared_state_held.card_debt);
@@ -266,7 +266,8 @@ pub async fn run_server(port : u32, server_is_open : bool) -> Result<(), Box<dyn
                             }
                             let mut card = shrared_state_held.clients_info[curr_client_id].hand.pop_at(card_idx);
                             if color_choice.is_some() {card.set_draw4_or_wild_color(color_choice.unwrap())}; // In case Wild or Draw4, need to set color
-                            shrared_state_held.stack.push_front(card);
+                            shrared_state_held.stack.push_front(card.clone());
+                            shrared_state_held.master_deck.push_card(card);
                             shrared_state_held.next_player();
                             send_packet(&mut shrared_state_held.clients_info[curr_client_id].stream, ServerPacket::SendMoveAcknowledgement { msg: None });
 
@@ -341,7 +342,7 @@ pub async fn run_server(port : u32, server_is_open : bool) -> Result<(), Box<dyn
                 }
                 else if input_line == "clients_info" {
                     let shared_state_locked = shared_state.lock().unwrap();
-                    dbg!(shared_state_locked); //FIXME: There is a warning!
+                    dbg!(&shared_state_locked.clients_info);
                 }
                 else if input_line == "start" {
                     if shared_state.lock().unwrap().game_phase != GamePhase::Waiting {
@@ -377,31 +378,8 @@ pub async fn run_server(port : u32, server_is_open : bool) -> Result<(), Box<dyn
 
         // for every new connection
         tokio::spawn(async move {
-            match server_is_open {
-                true => {
-                    bunt::println!("{$green}A client connected!{/$}");
-                    send_packet(&mut stream, ServerPacket::AuthRequest {required: false});
-                }
-                false => {
-                    // try authenticating the client until it is authenticated
-                    bunt::println!("{$yellow}A Client is attemtping to join...{/$}");
-                    //TODO: Consider adding "number of tries" for the client to join in
-                    let mut is_client_authenticated = false;
-                    while !is_client_authenticated {
-                        send_packet(&mut stream, ServerPacket::AuthRequest {required: true});
-                        match read_packet::<ClientPacket>(&mut stream) {
-                            ClientPacket::AuthResponse { join_code: code } => {
-                                if code == join_code {
-                                    bunt::println!("{$green}A client was successfully authentiated and connected!{/$}");
-                                    is_client_authenticated = true;
-                                    send_packet(&mut stream, ServerPacket::AuthAcknowledged)
-                                }
-                            }
-                            _ => server_received_unexpected_packet!()
-                        }
-                    }
-                }
-            }
+            bunt::println!("{$green}A client connected!{/$}");
+            send_packet(&mut stream, ServerPacket::AuthRequest {required: false});
 
         // ==== Setting Client Name ====
         send_packet(&mut stream, ServerPacket::AskPreferredName);

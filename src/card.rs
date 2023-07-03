@@ -103,16 +103,16 @@ impl Deck {
 
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug/* TODO: REMOVE THIS */)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Hand(Vec<Card>);
 impl Hand {
     pub fn new(init_hand_size : usize, deck : &mut Deck) -> Hand {
         let mut cards : Vec<Card> = vec![];
-        cards.push(Card::new_power(CardKind::Draw2, Some(Green)));
-        cards.push(Card::new_power(CardKind::Reverse, Some(Green)));
-        cards.push(Card::new_power(CardKind::Skip, Some(Green)));
-        cards.push(Card::new_power(CardKind::Wild, None));
-        cards.push(Card::new_power(CardKind::Draw4, None));
+        // cards.push(Card::new_power(CardKind::Draw2, Some(Green)));
+        // cards.push(Card::new_power(CardKind::Reverse, Some(Green)));
+        // cards.push(Card::new_power(CardKind::Skip, Some(Green)));
+        // cards.push(Card::new_power(CardKind::Wild, None));
+        // cards.push(Card::new_power(CardKind::Draw4, None));
         // cards.push(Card::new_number(1, Green));
         // cards.push(Card::new_power(Reverse, Some(Green)));
         (0..init_hand_size).for_each(|_| cards.push(deck.pop_random_card()));
@@ -147,9 +147,9 @@ impl fmt::Display for Hand {
     }
 }
 
-// impl fmt::Debug for Hand {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         writeln!(f, "Hidden for obvious reasons ;)");
-//         Ok(())
-//     }
-// }
+impl fmt::Debug for Hand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "Hand details hidden for obvious reasons ;)");
+        Ok(())
+    }
+}
