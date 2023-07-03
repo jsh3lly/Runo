@@ -1,4 +1,5 @@
-# Runo: Play Uno on the terminal over the internet with your friends, written in Rust!
+# Runo 
+Play Uno on the terminal over the internet with your friends, written in Rust!
 
 ## Dependencies
 * rust compiler
