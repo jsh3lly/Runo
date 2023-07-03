@@ -2,13 +2,19 @@
 name = "runo"
 version = "0.1.0"
 edition = "2021"
+description = "Play Uno on the terminal over the internet with your friends!"
+repository = "https://github.com/StaticESC/Runo"
+license = "MIT"
+keywords = ["game", "card"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+axum = "0.6.18"
 bincode = "1.3.3"
 bunt = "0.2.8"
 clap = { version = "4.2.1", features = ["derive", "cargo"] }
+ctrlc = "3.4.0"
 rand = "0.8.5"
 serde = { version = "1.0.159", features = ["derive"] }
 serde_json = "1.0.95"
