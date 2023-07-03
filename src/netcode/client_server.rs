@@ -89,11 +89,10 @@ impl GlobalGameData {
     /// Goes to the next player after accounting for skip_debt, direction, and inactive players
     fn next_player(&mut self) {
         fn next_client_id_wrapping(global_game_data : &mut GlobalGameData) {
-            let rhs: isize;
-            match global_game_data.direction {
-                Direction::Positive => rhs = 1,
-                Direction::Negative => rhs = -1,
-            }
+            let rhs = match global_game_data.direction {
+                Direction::Positive => 1,
+                Direction::Negative => -1,
+            };
             global_game_data.curr_client_id_turn = 
                 (global_game_data.curr_client_id_turn as isize + rhs)
                 .rem_euclid(global_game_data.curr_total_clients_num as isize) as usize;
@@ -227,8 +226,7 @@ pub async fn run_server(port : u32) -> Result<(), Box<dyn std::error::Error>> {
                     shrared_state_held.clients_info[idx].hand.len());
                 };
                 let hand_copy = shrared_state_held.clients_info[idx].hand.clone();
-                let is_my_turn;
-                is_my_turn = idx == shrared_state_held.curr_client_id_turn;
+                let is_my_turn = idx == shrared_state_held.curr_client_id_turn;
                 send_packet(&mut shrared_state_held.clients_info[idx].stream,
                             ServerPacket::SendMsgUpdate { msg_first_half, hand: hand_copy, msg_second_half, is_my_turn });
             }
@@ -424,7 +422,7 @@ pub async fn run_client(optional_client_name : Option<&String>, join_code_: Stri
                         loop {
                             let mut input_str : String = "".to_string();
                             io::stdin().read_line(&mut input_str).expect("FATAL ERROR: Could not read line");
-                            let mut input_words = input_str.trim().split_whitespace();
+                            let mut input_words = input_str.split_whitespace();
                             let first_input = input_words.next(); // Must be either a number or 'p'
                             if first_input.is_none() {bunt::println!("{$red}Invalid Input, try again:{/$}"); continue;}
                             match first_input.unwrap().trim().parse::<usize>() {
@@ -460,7 +458,7 @@ pub async fn run_client(optional_client_name : Option<&String>, join_code_: Stri
                             }
                                 Ok(card_idx) if !(card_idx > 0 && card_idx <= hand.len()) => {bunt::println!("{$red}Invalid Input. Card index not in range! try again:{/$}"); continue;}
                                 _ => {
-                                    if input_str.trim().to_lowercase() == "p".to_string() {
+                                    if input_str.trim().to_lowercase() == *"p" {
                                         send_packet(&mut stream, ClientPacket::SendMovePick);
                                         cls!();
                                         break;
