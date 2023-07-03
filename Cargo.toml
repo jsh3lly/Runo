@@ -1,6 +1,6 @@
 [package]
 name = "runo-game"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Jyotirmay Shelly <jyotirmay.shelly@gmail.com>"]
 description = "Play Uno on the terminal over the internet with your friends!"
