@@ -1,4 +1,4 @@
-use std::{net::{TcpListener, TcpStream}, io, sync::{Arc, Mutex}, collections::VecDeque};
+use std::{net::{TcpListener, TcpStream}, io, sync::{Arc, Mutex}, collections::VecDeque, process::exit};
 use rand::Rng;
 use tokio::sync::broadcast;
 
@@ -6,6 +6,7 @@ use crate::{netcode::packets::{send_packet, ServerPacket, read_packet, ClientPac
 use crate::netcode::misc::Names;
 use crate::card;
 use crate::game;
+use crate::netcode::ngrok;
 
 use card::Card;
 
@@ -18,7 +19,7 @@ macro_rules! cls {
 
 macro_rules! server_received_unexpected_packet {
     () => {
-        bunt::println!("{$red}Server received unexpected packet from client{/$}")
+        bunt::println!("{$red}[{}]Server received unexpected packet from client{/$}", line!())
     };
 }
 
@@ -149,8 +150,29 @@ impl GlobalGameData {
 }
 
 pub async fn run_server(port : u32, server_is_open : bool) -> Result<(), Box<dyn std::error::Error>> {
+    // let listener = ngrok::Session::builder()
+    //     .authtoken_from_env()
+    //     .connect()
+    //     .await?
+    //     .tcp_endpoint()
+    //     .listen()
+    //     .await?;
+
+    // let tunnel_res = ngrok::NgrokTunnel::new(port);
+    // if tunnel_res.is_err() {
+    //     println!("{}", tunnel_res.unwrap_err());
+    //     exit(1) //FIXME: Please use '?' and results in the project!!!
+    // }
+    // let mut tunnel = tunnel_res.unwrap();
+    // println!("{}", tunnel.url());
+    //
+    // tokio::spawn(async move {
+    //     let res = tunnel.process_handle.wait();
+    //     dbg!(res);
+    // });
+
     bunt::println!("{$green}The server has been started{/$}");
-    let listener = TcpListener::bind(format!("0.0.0.0:{}", port))?;
+    let listener = TcpListener::bind(format!("localhost:{port}"))?;
     let mut rng = rand::thread_rng();
     let join_code = rng.gen_range(100_000..999_999);
     if !server_is_open {
@@ -262,9 +284,6 @@ pub async fn run_server(port : u32, server_is_open : bool) -> Result<(), Box<dyn
                                     None => {},
                                 }
                                 // shrared_state_held.clients_info.remove(curr_client_id);
-                                // FIXME: Now there is another bug. Need to rework the
-                                // next_player() code. Basically, I NEED to remove the client when
-                                // it has won and that shifts the indices for every other client...
                             }
                         }
                         Err(e) => {
@@ -352,7 +371,7 @@ pub async fn run_server(port : u32, server_is_open : bool) -> Result<(), Box<dyn
      * threads "talk" with the 
      */
     loop {
-        let (mut stream, peer_addr) = listener.accept()?;
+        let (mut stream, _) = listener.accept()?;
         let shared_state = shared_global_game_data.clone();
         let mut rx = tx.subscribe();
 
@@ -424,9 +443,12 @@ pub async fn run_server(port : u32, server_is_open : bool) -> Result<(), Box<dyn
     }
 }
 
-pub async fn run_client(port : u32, optional_client_name : Option<&String>) -> Result<(), Box<dyn std::error::Error>> {
-    let mut stream = TcpStream::connect(format!("0.0.0.0:{}", port))?;
-    dbg!(optional_client_name.clone());
+pub async fn run_client(optional_client_name : Option<&String>, join_code_: String) -> Result<(), Box<dyn std::error::Error>> {
+    let join_code_pair = join_code_.split_at(1);
+    let addr = format!("{}.tcp.ngrok.io:{}", join_code_pair.0, join_code_pair.1);
+    // let addr = format!("localhost:8080", );
+    println!("{}", addr);
+    let mut stream = TcpStream::connect(addr)?;
     // Auth loop. Keeps on going if client gives wrong join_code. Ends when it gives right join_code
     let mut is_retry = false; // retry would be when the client sends a wrong code to the server
     loop {

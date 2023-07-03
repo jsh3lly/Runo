@@ -45,7 +45,7 @@ impl TCPPacket for ServerPacket{}
 pub fn read_packet<T : for<'a> Deserialize<'a> + TCPPacket>(stream : &mut TcpStream) -> T {
     let mut buff = [0u8; PACKET_SIZE];
     match stream.read_exact(&mut buff) {
-        Err(_) => bunt::println!("{$red}Error receiving packet!{/$}"),
+        Err(_) => bunt::println!("{$red}[{}] Error receiving packet!{/$}", line!()),
         Ok(_) => bunt::println!("{$green}Packet Received!{/$}"),
     }
     deserialize::<T>(&buff).unwrap()
@@ -56,6 +56,6 @@ pub fn send_packet<T : Serialize + TCPPacket>(stream : &mut TcpStream, packet : 
     serialize_into(&mut buff[..], &packet).unwrap();
     match stream.write_all(&buff[..PACKET_SIZE]){
         Ok(_) => bunt::println!("{$green}Packet Sent!{/$}"),
-        Err(_) => bunt::println!("{$red}Error sending packet{/$}"),
+        Err(_) => bunt::println!("{$red}[{}] Error sending packet{/$}", line!()),
     };
 }

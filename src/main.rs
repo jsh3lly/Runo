@@ -37,7 +37,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             arg!(-p --port <VALUE>)
             .help("Specify port number")
             .value_parser(value_parser!(u32).range(1..))
-            .default_value("8080"),
+            .conflicts_with("client")
+            .default_value("8080")
+            )
+        .arg(
+            arg!(-j --joincode <VALUE>)
+            .help("Specify the join code. After the server owner runs the server, say they get the code \"813237\"\n \
+                  You need to do `runo -c -j '813237'")
+            .required(true)
+            .conflicts_with("server")
             )
         // .arg(
         //     arg!(-v --verbose)
@@ -59,7 +67,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if *matches.get_one("client").unwrap() {
-        client_server::run_client(port, matches.get_one("name"),).await?;
+        let join_code : String = matches.get_one::<String>("joincode").unwrap().to_string();
+        client_server::run_client(matches.get_one("name"), join_code).await?;
     }
     Ok(())
 }
